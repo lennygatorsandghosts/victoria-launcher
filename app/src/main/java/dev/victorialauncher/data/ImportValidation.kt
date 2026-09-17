@@ -74,8 +74,14 @@ private val JSON_STRING_KEYS = setOf(
  * rather than failing the whole import over a single bad row.
  *
  * Returns null when the file isn't recognizable as a Victoria Launcher export at all: too
- * large, not JSON, missing the envelope's `values` object, or a `format` major this build
- * doesn't understand.
+ * large, not JSON, missing the envelope's `values` object, a `format` major this build doesn't
+ * understand, or -- CR-2 -- a non-empty `values` object none of whose entries survived
+ * validation. That last case is deliberately distinct from a `values` object that was empty to
+ * begin with (a never-configured install's own export, which still imports and clears the store
+ * to defaults, exactly as the pre-hardening parser did: iterating zero keys never threw there
+ * either): one says "restore me to nothing," the other says "here is content, all of which
+ * turned out to be untrustworthy," and only the second is worth refusing outright rather than
+ * silently wiping every existing setting.
  */
 internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>): ParsedExport? {
     if (text.length > MAX_IMPORT_FILE_BYTES) return null
@@ -104,6 +110,9 @@ internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>)
             }
             result.add(preferenceKey(name, expected) to value)
         }
+        // CR-2: see the doc comment above -- a `values` object that had real entries but from
+        // which nothing survived is not the same file as one that was honestly empty.
+        if (values.length() > 0 && result.isEmpty()) return@runCatching null
         ParsedExport(result)
     }.getOrNull()
 }
