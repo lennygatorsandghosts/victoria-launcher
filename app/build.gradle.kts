@@ -31,8 +31,8 @@ android {
         applicationId = "org.lemmyorleans.vickyplus"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7102 // upstream versionCode * 100 + fork revision
-        versionName = "0.62.2-vicky.2"
+        versionCode = 7103 // upstream versionCode * 100 + fork revision
+        versionName = "0.62.2-vicky.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
