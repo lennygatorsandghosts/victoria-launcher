@@ -74,6 +74,7 @@ import dev.victorialauncher.ui.applist.AppListScreen
 import dev.victorialauncher.ui.applist.BandEditOverlay
 import dev.victorialauncher.ui.applist.EdgeScrubber
 import dev.victorialauncher.ui.applist.EdgeTouchZone
+import dev.victorialauncher.ui.applist.GLYPH_FAVORITES
 import dev.victorialauncher.ui.applist.ScrubBand
 import dev.victorialauncher.ui.applist.ScrubState
 import dev.victorialauncher.ui.applist.buildAppListModel
@@ -926,6 +927,14 @@ fun HomeRoute(
                     state = scrub,
                     listOpen = appListVisible,
                     onDismiss = { closeAppList() },
+                    onReleaseLetter = { target ->
+                        if (target == GLYPH_FAVORITES) {
+                            closeAppList()
+                            true
+                        } else {
+                            false
+                        }
+                    },
                     onOpen = {
                         appListVisible = true
                         // Opened by touching the edge, so there is nothing to animate in.

@@ -5,7 +5,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -13,11 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.victorialauncher.data.EdgeSide
-import kotlin.math.exp
 import kotlin.math.roundToInt
 
 /** Letters sit this far in from the screen edge so they aren't crowding it. */
@@ -67,7 +73,7 @@ fun EdgeScrubber(
     val density = LocalDensity.current.density
     val spacingPx = band.heightPx / letters.size
     // Wide enough that a good stretch of the alphabet takes part in the curve.
-    val sigmaPx = 2.6f * spacingPx
+    val sigmaPx = 4.5f * spacingPx
     val bellPx = BELL_AMPLITUDE_DP * density
 
     Box(
@@ -89,22 +95,49 @@ fun EdgeScrubber(
                     .width(20.dp)
                     .graphicsLayer {
                         val y = scrubY()
-                        val gain = if (y == null) {
-                            0f
-                        } else {
-                            val d = y - centerY
-                            exp(-(d * d) / (2f * sigmaPx * sigmaPx))
-                        }
+                        val gain = if (y == null) 0f else ScrubberGeometry.bellGain(y - centerY, sigmaPx)
 
                         // Position only — the glyph is never scaled.
                         val outward = bellPx * gain + pullPx() * gain
                         translationX = if (side == EdgeSide.LEFT) outward else -outward
-                        alpha = 0.55f + 0.45f * gain
+                        alpha = 0.92f + 0.08f * gain
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = c.toString(), fontSize = 13.sp, color = Color.White)
+                if (isStripGlyph(c)) {
+                    StripGlyphIcon(
+                        glyph = c,
+                        tint = Color.White,
+                        modifier = Modifier.size(if (c == GLYPH_LAUNCHER) 10.dp else 16.dp),
+                    )
+                } else {
+                    Text(
+                        text = c.toString(),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                    )
+                }
             }
         }
     }
+}
+
+internal fun isStripGlyph(c: Char): Boolean =
+    c == GLYPH_FAVORITES || c == GLYPH_PRIVATE || c == GLYPH_LAUNCHER
+
+@Composable
+internal fun StripGlyphIcon(glyph: Char, tint: Color, modifier: Modifier = Modifier) {
+    val imageVector = when (glyph) {
+        GLYPH_FAVORITES -> Icons.Outlined.StarBorder
+        GLYPH_PRIVATE -> Icons.Outlined.Shield
+        GLYPH_LAUNCHER -> Icons.Outlined.RadioButtonUnchecked
+        else -> return
+    }
+    Icon(
+        imageVector = imageVector,
+        contentDescription = null,
+        modifier = modifier,
+        tint = tint,
+    )
 }

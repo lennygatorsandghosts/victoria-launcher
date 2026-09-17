@@ -54,6 +54,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
@@ -979,12 +980,14 @@ fun AppListScreen(
 
         // Bubble for the current letter, dragged out from the strip and springing back.
         if (scrubLetter != null) {
-            val bubble = 72.dp
+            val target = scrubLetter
+            val bubble = 44.dp
             val halfPx = with(density) { (bubble / 2).toPx() }
             val insetPx = with(density) { SCRUB_BUBBLE_INSET_DP.dp.toPx() }
+            val bubbleTint = Color(0xFF202124)
             Surface(
-                color = Color.Black.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(22.dp),
+                color = Color.White.copy(alpha = 0.85f),
+                shape = CircleShape,
                 modifier = Modifier
                     .align(if (activeSide == EdgeSide.LEFT) Alignment.TopStart else Alignment.TopEnd)
                     .offset {
@@ -997,12 +1000,20 @@ fun AppListScreen(
                     .size(bubble),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        scrubLetter.toString(),
-                        color = Color.White,
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    if (isStripGlyph(target)) {
+                        StripGlyphIcon(
+                            glyph = target,
+                            tint = bubbleTint,
+                            modifier = Modifier.size(if (target == GLYPH_LAUNCHER) 18.dp else 24.dp),
+                        )
+                    } else {
+                        Text(
+                            target.toString(),
+                            color = bubbleTint,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
         }

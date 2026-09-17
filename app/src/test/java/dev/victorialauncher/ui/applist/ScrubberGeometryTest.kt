@@ -2,6 +2,7 @@
 package dev.victorialauncher.ui.applist
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScrubberGeometryTest {
@@ -39,6 +40,33 @@ class ScrubberGeometryTest {
     @Test
     fun `a zero-height band never divides by zero`() {
         assertEquals(0, ScrubberGeometry.indexForY(120f, top, heightPx = 0f, count = count))
+    }
+
+    @Test
+    fun `bell gain peaks at the touch point and reaches zero far away`() {
+        assertEquals(1f, ScrubberGeometry.bellGain(0f, sigmaPx = 10f), 0f)
+        assertEquals(0f, ScrubberGeometry.bellGain(80f, sigmaPx = 10f), 0f)
+    }
+
+    @Test
+    fun `bell gain is symmetric around the peak`() {
+        val sigma = 18f
+        assertEquals(
+            ScrubberGeometry.bellGain(-11f, sigma),
+            ScrubberGeometry.bellGain(11f, sigma),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun `bell gain falls monotonically as distance grows`() {
+        val sigma = 20f
+        val near = ScrubberGeometry.bellGain(10f, sigma)
+        val middle = ScrubberGeometry.bellGain(25f, sigma)
+        val far = ScrubberGeometry.bellGain(60f, sigma)
+
+        assertTrue(near > middle)
+        assertTrue(middle > far)
     }
 
     @Test

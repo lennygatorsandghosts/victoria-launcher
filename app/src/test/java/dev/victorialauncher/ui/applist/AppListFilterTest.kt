@@ -40,12 +40,12 @@ class AppListFilterTest {
             AppListRow.Entry(recent),
             AppListRow.Entry(settings),
         ),
-        letterIndex = listOf('S' to 0, GLYPH_PRIVATE to 2, GLYPH_LAUNCHER to 4),
+        letterIndex = listOf(GLYPH_FAVORITES to 0, 'S' to 0, GLYPH_PRIVATE to 2, GLYPH_LAUNCHER to 4),
     )
 
     @Test
     fun `the strip's alphabet is the index it was given`() {
-        assertEquals(listOf('S', GLYPH_PRIVATE, GLYPH_LAUNCHER), model.letters)
+        assertEquals(listOf(GLYPH_FAVORITES, 'S', GLYPH_PRIVATE, GLYPH_LAUNCHER), model.letters)
     }
 
     @Test
@@ -57,7 +57,7 @@ class AppListFilterTest {
         )
         // Not 'P'. Deriving it from the heading's first character is exactly what would file
         // the private space back under P, which is where it used to sit.
-        assertEquals(listOf(GLYPH_PRIVATE to 0), filtered.letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0, GLYPH_PRIVATE to 0), filtered.letterIndex)
     }
 
     @Test
@@ -67,14 +67,14 @@ class AppListFilterTest {
             listOf(AppListRow.Header(LAUNCHER_SECTION_TITLE, GLYPH_LAUNCHER), AppListRow.Entry(recent)),
             filtered.rows,
         )
-        assertEquals(listOf(GLYPH_LAUNCHER to 0), filtered.letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0, GLYPH_LAUNCHER to 0), filtered.letterIndex)
     }
 
     @Test
     fun `an A-Z section still keeps its letter`() {
         val filtered = model.filtered { it.kind == EntryKind.SEARCH }
         assertEquals(listOf(AppListRow.Header("S"), AppListRow.Entry(search)), filtered.rows)
-        assertEquals(listOf('S' to 0), filtered.letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0, 'S' to 0), filtered.letterIndex)
     }
 
     @Test
@@ -90,14 +90,14 @@ class AppListFilterTest {
             ),
             filtered.rows,
         )
-        assertEquals(listOf(GLYPH_PRIVATE to 0, GLYPH_LAUNCHER to 2), filtered.letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0, GLYPH_PRIVATE to 0, GLYPH_LAUNCHER to 2), filtered.letterIndex)
     }
 
     @Test
-    fun `a heading whose section matched nothing is dropped, glyph and all`() {
+    fun `a heading whose section matched nothing drops its section glyphs`() {
         val filtered = model.filtered { false }
         assertEquals(emptyList<AppListRow>(), filtered.rows)
-        assertEquals(emptyList<Pair<Char, Int>>(), filtered.letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0), filtered.letterIndex)
     }
 
     @Test

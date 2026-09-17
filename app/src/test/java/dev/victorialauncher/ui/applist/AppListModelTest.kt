@@ -138,7 +138,7 @@ class AppListModelTest {
             listOf(Row("Alarm"), Row("Zoom"), padlock, Row("Clock", serial = PRIVATE), recent, settingsRow)
         )
         assertEquals(
-            listOf('A' to 0, 'Z' to 2, GLYPH_PRIVATE to 4, GLYPH_LAUNCHER to 7),
+            listOf(GLYPH_FAVORITES to 0, 'A' to 0, 'Z' to 2, GLYPH_PRIVATE to 4, GLYPH_LAUNCHER to 7),
             letterIndex,
         )
         // Each index is the section's own header, which is what scrubbing to it scrolls to.
@@ -152,7 +152,15 @@ class AppListModelTest {
     }
 
     @Test
-    fun `no private space means no section and no glyph`() {
+    fun `the strip alphabet starts at favorites and ends at launcher`() {
+        val (_, letterIndex) = build(listOf(Row("Alarm"), recent, settingsRow))
+        assertEquals(GLYPH_FAVORITES to 0, letterIndex.first())
+        assertEquals(GLYPH_LAUNCHER, letterIndex.last().first)
+        assertEquals(listOf(GLYPH_FAVORITES, 'A', GLYPH_LAUNCHER), letterIndex.map { it.first })
+    }
+
+    @Test
+    fun `no private space means no section and no shield glyph`() {
         val (rows, letterIndex) = build(
             rows = listOf(Row("Alarm"), recent, settingsRow),
             privateSerial = 0L,
@@ -161,7 +169,7 @@ class AppListModelTest {
             listOf("A", "Alarm", LAUNCHER_SECTION_TITLE, "Recently installed", "Vicky+ settings"),
             rows,
         )
-        assertEquals(listOf('A' to 0, GLYPH_LAUNCHER to 2), letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0, 'A' to 0, GLYPH_LAUNCHER to 2), letterIndex)
     }
 
     @Test
@@ -171,7 +179,7 @@ class AppListModelTest {
         // inside the space, because there is nothing here that has ever seen it.
         val (rows, letterIndex) = build(listOf(Row("Alarm"), padlock))
         assertEquals(listOf("A", "Alarm", PRIVATE_SECTION_TITLE, "Unlock private space"), rows)
-        assertEquals(listOf('A' to 0, GLYPH_PRIVATE to 2), letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0, 'A' to 0, GLYPH_PRIVATE to 2), letterIndex)
     }
 
     @Test
@@ -188,7 +196,7 @@ class AppListModelTest {
             ),
             rows,
         )
-        assertEquals(listOf('A' to 0, GLYPH_PRIVATE to 2, GLYPH_LAUNCHER to 4), letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0, 'A' to 0, GLYPH_PRIVATE to 2, GLYPH_LAUNCHER to 4), letterIndex)
     }
 
     @Test
@@ -203,7 +211,7 @@ class AppListModelTest {
     fun `a private row whose name has no A-Z letter still lands in the section`() {
         val (rows, letterIndex) = build(listOf(padlock, Row("設定", serial = PRIVATE)))
         assertEquals(listOf(PRIVATE_SECTION_TITLE, "Unlock private space", "設定"), rows)
-        assertEquals(listOf(GLYPH_PRIVATE to 0), letterIndex)
+        assertEquals(listOf(GLYPH_FAVORITES to 0, GLYPH_PRIVATE to 0), letterIndex)
     }
 
     @Test

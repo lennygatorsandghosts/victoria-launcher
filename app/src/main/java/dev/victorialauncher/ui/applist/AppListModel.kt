@@ -33,7 +33,7 @@ sealed interface AppListRow {
 @Immutable
 data class AppListModel(
     val rows: List<AppListRow>,
-    /** First row index for each A-Z letter, in scrubber order. */
+    /** First row index for each scrubber target, in strip order. */
     val letterIndex: List<Pair<Char, Int>>,
 ) {
     /** The scrubber's alphabet, derived once here rather than at each place that draws it. */
@@ -185,7 +185,7 @@ internal fun <T, R> buildSectionedRows(
 ): Pair<List<R>, List<Pair<Char, Int>>> {
     val visible = items.filter { key(it) !in hidden }
     val rows = mutableListOf<R>()
-    val letterIndex = mutableListOf<Pair<Char, Int>>()
+    val letterIndex = mutableListOf(GLYPH_FAVORITES to 0)
 
     val privateRows = visible.filter { isPrivate(it) }
     // Private wins over everything, here and in the A-Z filter below, so no row can be drawn
@@ -291,7 +291,7 @@ fun buildAppListModel(
  */
 fun AppListModel.filtered(match: (AppInfo) -> Boolean): AppListModel {
     val kept = mutableListOf<AppListRow>()
-    val letterIndex = mutableListOf<Pair<Char, Int>>()
+    val letterIndex = mutableListOf(GLYPH_FAVORITES to 0)
     var pendingHeader: AppListRow.Header? = null
 
     rows.forEach { row ->

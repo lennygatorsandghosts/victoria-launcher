@@ -46,6 +46,8 @@ fun EdgeTouchZone(
     onOpen: () -> Unit,
     /** Closes an already-open list, the way tapping the empty space above it does. */
     onDismiss: () -> Unit,
+    /** Handles a scrub target picked on release before tap/double-tap logic runs. */
+    onReleaseLetter: (Char) -> Boolean = { false },
     /** Null when double-tap-to-lock is off, so a second tap is simply another tap. */
     onDoubleTap: (() -> Unit)?,
     modifier: Modifier = Modifier,
@@ -58,6 +60,7 @@ fun EdgeTouchZone(
     // this frame's callbacks.
     val currentDoubleTap by rememberUpdatedState(onDoubleTap)
     val currentDismiss by rememberUpdatedState(onDismiss)
+    val currentReleaseLetter by rememberUpdatedState(onReleaseLetter)
     val currentListOpen by rememberUpdatedState(listOpen)
 
     Box(
@@ -123,7 +126,13 @@ fun EdgeTouchZone(
                         change.consume()
                     }
 
+                    val releasedLetter = state.letter
                     scope.launch { state.release() }
+
+                    if (releasedLetter != null && currentReleaseLetter(releasedLetter)) {
+                        state.lastTapUptimeMs = 0L
+                        return@awaitEachGesture
+                    }
 
                     if (!moved) {
                         val doubleTap = currentDoubleTap
