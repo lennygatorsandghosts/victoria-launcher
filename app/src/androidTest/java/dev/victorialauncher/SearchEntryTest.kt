@@ -6,7 +6,6 @@ import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.Until
 import dev.victorialauncher.data.Prefs
 import dev.victorialauncher.data.SearchUrl
 import kotlinx.coroutines.runBlocking
@@ -71,6 +70,10 @@ class SearchEntryTest {
 
     private val template = "https://search.example.org/search?q=%s"
 
+    // Not the default "Search": the dialog's own button says that too, and a label found
+    // nowhere else on screen is what makes finding the row mean something.
+    private val rowLabel = "Web lookup"
+
     @Before
     fun setUp() {
         instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -80,7 +83,7 @@ class SearchEntryTest {
         prefs = Prefs(instrumentation.targetContext.applicationContext)
         runBlocking {
             prefs.setSearchUrlTemplate(template)
-            prefs.setSearchLabel("")
+            prefs.setSearchLabel(rowLabel)
         }
         LauncherTestUtils.setAsDefaultHome()
         LauncherTestUtils.goHome()
@@ -108,15 +111,22 @@ class SearchEntryTest {
             val device = LauncherTestUtils.uiDevice()
 
             LauncherTestUtils.openAppList()
+            // The list only composes the rows on screen, and how many sit above this one
+            // depends on what else is installed or pinned. Filtering by name is how a user
+            // would reach it too, and it brings the row into view wherever it sorts.
+            // Part of the name only, so the box never holds the text looked for next.
+            LauncherTestUtils.filterAppList(rowLabel.dropLast(3))
             assertTrue(
-                "expected the Search row in the A-Z list",
-                LauncherTestUtils.waitForText("Search"),
+                "expected the search row in the A-Z list",
+                LauncherTestUtils.waitForText(rowLabel),
             )
-            device.findObject(By.text("Search")).click()
+            device.findObject(By.text(rowLabel)).click()
 
+            // The list has a text field of its own, so the dialog is recognised by its hint
+            // rather than by being a text field.
             assertTrue(
-                "expected the search dialog's text field to appear",
-                device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 5_000L),
+                "expected the search dialog to appear",
+                LauncherTestUtils.waitForText("Search the web", 5_000L),
             )
             val field = device.findObject(By.clazz("android.widget.EditText"))
             field.text = query
