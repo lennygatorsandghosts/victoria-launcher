@@ -48,6 +48,8 @@ internal class ParsedExport(val values: List<Pair<Preferences.Key<*>, Any>>)
  * The four string-valued preferences that are themselves a JSON document, and so need a second,
  * shape-level check beyond "is a string under the length cap".
  */
+private const val SEARCH_URL_TEMPLATE_KEY = "search_url_template"
+
 private val JSON_STRING_KEYS = setOf(
     "folders_json",
     "name_overrides_json",
@@ -102,6 +104,12 @@ internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>)
             if (name in JSON_STRING_KEYS) {
                 value = sanitizeJsonStringValue(name, value as String) ?: return@forEach
             }
+            // The one setting that decides where something the user types is sent. It is
+            // checked again every time it is used, but a template that could never be used has
+            // no business being stored either, so it is dropped here like any other bad value.
+            if (name == SEARCH_URL_TEMPLATE_KEY && (value as String).isNotEmpty() &&
+                SearchUrl.validate(value) !is SearchUrl.Validation.Ok
+            ) return@forEach
             result.add(preferenceKey(name, expected) to value)
         }
         ParsedExport(result)

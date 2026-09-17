@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package dev.victorialauncher.ui.home
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.Rect
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -52,12 +54,14 @@ import dev.victorialauncher.VictoriaApp
 import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.AzStripVisibility
 import dev.victorialauncher.data.EdgeSide
+import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.Folder
 import dev.victorialauncher.data.HomePaddings
 import dev.victorialauncher.data.QuickLaunchSlot
 import dev.victorialauncher.data.PaddingSlot
+import dev.victorialauncher.data.SearchUrl
 import dev.victorialauncher.data.folderToken
 import dev.victorialauncher.media.NowPlayingBus
 import dev.victorialauncher.media.isListenerEnabled
@@ -71,6 +75,7 @@ import dev.victorialauncher.ui.applist.ScrubBand
 import dev.victorialauncher.ui.applist.ScrubState
 import dev.victorialauncher.ui.applist.buildAppListModel
 import dev.victorialauncher.ui.common.FolderPickerDialog
+import dev.victorialauncher.ui.common.SearchQueryDialog
 import dev.victorialauncher.widget.WidgetSlotActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -197,6 +202,20 @@ fun HomeRoute(
     var favBand by remember { mutableStateOf<ScrubBand?>(null) }
     var homeEditMode by remember { mutableStateOf(false) }
     var folderPickerFor by remember { mutableStateOf<AppInfo?>(null) }
+
+    // Set while the search row's query dialog is up; null the rest of the time.
+    var searchEntry by remember { mutableStateOf<AppInfo?>(null) }
+
+    // Every row's tap ends up here. A search row has no activity to start — it asks for a
+    // query instead — so it is the one kind kept out of AppRepository.launch() entirely,
+    // rather than reaching it and failing to launch our own package.
+    fun launchEntry(entry: AppInfo): Boolean {
+        if (entry.kind == EntryKind.SEARCH) {
+            searchEntry = entry
+            return true
+        }
+        return app.appRepository.launch(entry)
+    }
 
     val nowPlaying by NowPlayingBus.state.collectAsState()
     val listenerGranted = remember(homeIntentTick) { isListenerEnabled(context) }
@@ -485,9 +504,9 @@ fun HomeRoute(
                 nowPlayingHeightDp = settings.nowPlayingHeightDp,
                 onResizeNowPlaying = { scope.launch { app.prefs.setNowPlayingHeightDp(it) } },
                 widgetActions = widgetActions,
-                onLaunch = { app.appRepository.launch(it) },
+                onLaunch = { launchEntry(it) },
                 onRemoveFavorite = { scope.launch { app.prefs.removeFavorite(it.key) } },
-                onOpenFolderApp = { app.appRepository.launch(it) },
+                onOpenFolderApp = { launchEntry(it) },
                 onRenameFolder = { folder, name ->
                     scope.launch { app.prefs.upsertFolder(folder.copy(name = name)) }
                 },
@@ -580,7 +599,7 @@ fun HomeRoute(
                         QuickLaunchSlot.LEFT -> settings.quickLaunchLeft
                         QuickLaunchSlot.RIGHT -> settings.quickLaunchRight
                     }
-                    target?.let { app.appRepository.launch(it) }
+                    target?.let { launchEntry(it) }
                 },
                 onPeekStatusBar = onPeekStatusBar,
                 onExpandShade = {
@@ -629,8 +648,16 @@ fun HomeRoute(
                 visible = appListVisible,
                 favoriteKeys = remember(favoriteKeys) { favoriteKeys.toSet() },
                 onLaunch = { appInfo ->
-                    // A launch that never got off the ground leaves nothing to wait for.
-                    if (app.appRepository.launch(appInfo)) closeAfterLaunch() else closeAppList()
+                    if (appInfo.kind == EntryKind.SEARCH) {
+                        // Nothing is about to take the screen over the way a launched app
+                        // would — the dialog is what comes next, and it needs the overlay
+                        // out of the way to be seen at all.
+                        closeAppList()
+                        launchEntry(appInfo)
+                    } else {
+                        // A launch that never got off the ground leaves nothing to wait for.
+                        if (launchEntry(appInfo)) closeAfterLaunch() else closeAppList()
+                    }
                 },
                 onSetFavorite = { appInfo, add ->
                     scope.launch {
@@ -727,6 +754,29 @@ fun HomeRoute(
             )
         }
 
+        searchEntry?.let { entry ->
+            SearchQueryDialog(
+                label = nameOverrides[entry.key] ?: entry.label,
+                onSubmit = { query ->
+                    val url = SearchUrl.build(settings.searchUrlTemplate, query)
+                    if (url != null) {
+                        try {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            scope.launch { app.prefs.incrementLaunchCount(entry.key) }
+                        } catch (e: ActivityNotFoundException) {
+                            Toast.makeText(context, R.string.toast_search_failed, Toast.LENGTH_SHORT).show()
+                        } catch (e: SecurityException) {
+                            Toast.makeText(context, R.string.toast_search_failed, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onDismiss = { searchEntry = null },
+            )
+        }
+
         if (bandEditMode) {
             BandEditOverlay(
                 band = liveBand ?: band,
@@ -815,4 +865,6 @@ data class HomeSettings(
     val showFavoriteLabels: Boolean,
     val doubleTapToLock: Boolean,
     val contentColor: Color,
+    /** Validated already — see AppRepository.queryAllApps — so the dialog never has to check. */
+    val searchUrlTemplate: String,
 )

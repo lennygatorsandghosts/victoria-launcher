@@ -70,6 +70,7 @@ import dev.victorialauncher.ui.theme.rememberContentColor
 import dev.victorialauncher.widget.WidgetPickerActivity
 import dev.victorialauncher.widget.WidgetSlotActions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -128,7 +129,15 @@ fun VictoriaNavHost(
     // let the home screen render against an empty list for the first frame.
     var allApps by remember { mutableStateOf(emptyList<AppInfo>()) }
     suspend fun reloadApps() {
-        allApps = withContext(Dispatchers.Default) { app.appRepository.queryAllApps() }
+        // Read directly off the flow rather than a collectAsState snapshot: this is also
+        // called from a callback registered once, in a DisposableEffect(Unit) below, whose
+        // closure would otherwise keep reading whatever the search prefs were at that first
+        // composition rather than their current value.
+        val template = app.prefs.searchUrlTemplate.first()
+        val label = app.prefs.searchLabel.first()
+        allApps = withContext(Dispatchers.Default) {
+            app.appRepository.queryAllApps(template, label)
+        }
     }
     // A shortcut pinned through the confirm screen, or unpinned from a menu, changes what
     // there is to list without any package changing — so nothing here would otherwise notice.
@@ -243,6 +252,11 @@ fun VictoriaNavHost(
     val layoutDefaultsVersion by app.prefs.layoutDefaultsVersion.collectAsState(initial = null)
     val welcomeSeen by app.prefs.welcomeSeen.collectAsState(initial = true)
     val hasCustomLayout by app.prefs.hasCustomLayout.collectAsState(initial = true)
+    val searchUrlTemplate by app.prefs.searchUrlTemplate.collectAsState(initial = "")
+    val searchLabel by app.prefs.searchLabel.collectAsState(initial = "")
+    // Editing the template in Settings should show or hide the row immediately, the same as
+    // installing or removing an app does — not just on the next cold start.
+    LaunchedEffect(searchUrlTemplate, searchLabel) { reloadApps() }
     val contentColor = rememberContentColor(textColorMode, textColorCustom)
 
     val appsByKey = remember(allApps) { allApps.associateBy { it.key } }
@@ -356,6 +370,7 @@ fun VictoriaNavHost(
         showFavoriteLabels = showFavoriteLabels,
         doubleTapToLock = doubleTapToLock,
         contentColor = contentColor,
+        searchUrlTemplate = searchUrlTemplate,
     )
 
     var pendingIconTarget by remember { mutableStateOf<String?>(null) }
@@ -511,6 +526,10 @@ fun VictoriaNavHost(
                 iconSide = iconSide,
                 nowPlayingEnabled = nowPlayingEnabled,
                 nowPlayingListenerEnabled = listenerEnabled,
+                searchUrlTemplate = searchUrlTemplate,
+                searchLabel = searchLabel,
+                onSetSearchUrlTemplate = { scope.launch { app.prefs.setSearchUrlTemplate(it) } },
+                onSetSearchLabel = { scope.launch { app.prefs.setSearchLabel(it) } },
                 onSetIconPack = { scope.launch { app.prefs.setIconPackPackage(it) } },
                 onSetShowAppIcons = { scope.launch { app.prefs.setShowAppIcons(it) } },
                 onSetIconSize = { scope.launch { app.prefs.setIconSizeDp(it) } },

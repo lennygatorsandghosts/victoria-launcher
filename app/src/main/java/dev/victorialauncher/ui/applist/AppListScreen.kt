@@ -1133,7 +1133,8 @@ private fun AppRow(
                 leadingIcon = { Icon(Icons.Filled.Tune, contentDescription = null) },
                 onClick = { onDismissMenu(); onEdit() },
             )
-            // App info belongs to an app; there is no package screen to open for a shortcut.
+            // App info belongs to an app; a shortcut or the search entry has no package screen
+            // to open.
             if (app.kind == EntryKind.APP) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.action_app_info)) },

@@ -77,6 +77,7 @@ import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.QuickLaunchSlot
 import dev.victorialauncher.data.IconPackRepository
+import dev.victorialauncher.data.SearchUrl
 import dev.victorialauncher.data.TextColorMode
 import dev.victorialauncher.ui.common.AppIcon
 import dev.victorialauncher.ui.theme.toFontFamily
@@ -121,6 +122,10 @@ fun SettingsScreen(
     iconSide: IconSide,
     nowPlayingEnabled: Boolean,
     nowPlayingListenerEnabled: Boolean,
+    searchUrlTemplate: String,
+    searchLabel: String,
+    onSetSearchUrlTemplate: (String) -> Unit,
+    onSetSearchLabel: (String) -> Unit,
     showAppIcons: Boolean,
     onSetIconPack: (String?) -> Unit,
     onSetShowAppIcons: (Boolean) -> Unit,
@@ -550,6 +555,15 @@ fun SettingsScreen(
                     }
                   }
                 }
+            }
+
+            item {
+                SearchButtonSection(
+                    urlTemplate = searchUrlTemplate,
+                    label = searchLabel,
+                    onSetUrlTemplate = onSetSearchUrlTemplate,
+                    onSetLabel = onSetSearchLabel,
+                )
             }
 
             item {
@@ -1109,6 +1123,90 @@ private fun AccessibilityActions(onOpenAccessibilitySettings: () -> Unit, onOpen
         FilledChip(stringResource(R.string.settings_app_info), selected = false, onClick = onOpenAppInfo)
         FilledChip(stringResource(R.string.settings_enable), selected = false, onClick = onOpenAccessibilitySettings)
     }
+}
+
+/**
+ * Every keystroke is saved immediately, the same as every slider and switch elsewhere on this
+ * screen — there is no separate save step to forget. An empty template is a valid state (the
+ * feature simply stays off), so nothing is flagged as an error until something is typed.
+ */
+@Composable
+private fun SearchButtonSection(
+    urlTemplate: String,
+    label: String,
+    onSetUrlTemplate: (String) -> Unit,
+    onSetLabel: (String) -> Unit,
+) {
+    var urlText by remember { mutableStateOf(urlTemplate) }
+    var labelText by remember { mutableStateOf(label) }
+    val validation = remember(urlText) { SearchUrl.validate(urlText) }
+
+    Section(stringResource(R.string.settings_section_search)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                stringResource(R.string.settings_search_button_detail, "%s"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            OutlinedTextField(
+                value = labelText,
+                onValueChange = { labelText = it; onSetLabel(it) },
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_search_button_label)) },
+                placeholder = { Text(stringResource(R.string.search_entry_default_label)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = urlText,
+                onValueChange = { urlText = it; onSetUrlTemplate(it) },
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_search_button_url)) },
+                placeholder = { Text(stringResource(R.string.settings_search_button_url_hint)) },
+                isError = urlText.isNotBlank() && validation is SearchUrl.Validation.Invalid,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (urlText.isNotBlank()) {
+                when (validation) {
+                    is SearchUrl.Validation.Invalid -> {
+                        searchUrlErrorMessage(validation.reason)?.let { message ->
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                    }
+                    is SearchUrl.Validation.Ok -> if (validation.insecure) {
+                        Text(
+                            stringResource(R.string.settings_search_button_insecure),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun searchUrlErrorMessage(reason: SearchUrl.Reason): String? = when (reason) {
+    // Not a rejection the field ever shows: an empty template just means the feature is off,
+    // and the caller already keeps this branch from being reached while the field is blank.
+    SearchUrl.Reason.BLANK -> null
+    SearchUrl.Reason.TOO_LONG -> stringResource(R.string.search_url_error_too_long)
+    SearchUrl.Reason.CONTROL_CHARACTER -> stringResource(R.string.search_url_error_control_character)
+    SearchUrl.Reason.NO_PLACEHOLDER -> stringResource(R.string.search_url_error_no_placeholder, "%s")
+    SearchUrl.Reason.MULTIPLE_PLACEHOLDERS -> stringResource(R.string.search_url_error_multiple_placeholders, "%s")
+    SearchUrl.Reason.UNSUPPORTED_SCHEME -> stringResource(R.string.search_url_error_unsupported_scheme)
+    SearchUrl.Reason.USERINFO_NOT_ALLOWED -> stringResource(R.string.search_url_error_userinfo)
+    SearchUrl.Reason.MISSING_HOST -> stringResource(R.string.search_url_error_missing_host)
+    SearchUrl.Reason.PLACEHOLDER_IN_AUTHORITY -> stringResource(R.string.search_url_error_placeholder_in_authority, "%s")
+    SearchUrl.Reason.MALFORMED -> stringResource(R.string.search_url_error_malformed)
 }
 
 @Composable

@@ -239,6 +239,42 @@ class ImportValidationTest {
         assertEquals(mapOf("com.a/com.a.Main" to "pack:com.example.iconpack:ic_a"), kept)
     }
 
+    // --- the search template: the one value that decides where typed text is sent ---
+
+    @Test
+    fun `a usable search template imports`() {
+        val text = envelopeOf("search_url_template" to """{"type":"string","value":"https://search.example.org/search?q=%s"}""")
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals("https://search.example.org/search?q=%s", parsed.value("search_url_template"))
+    }
+
+    @Test
+    fun `a search template that could never be used is dropped while its neighbours import`() {
+        listOf(
+            "javascript:alert(1)//%s",
+            "intent://x#Intent;scheme=https;S.q=%s;end",
+            "file:///sdcard/%s",
+            "https://%s.evil.example/",
+            "https://good.example@evil.example/?q=%s",
+            "https://search.example.org/no-placeholder",
+        ).forEach { hostile ->
+            val text = envelopeOf(
+                "search_url_template" to """{"type":"string","value":${JSONObject.quote(hostile)}}""",
+                "search_label" to """{"type":"string","value":"Find"}""",
+            )
+            val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+            assertNull("expected the template to be dropped: $hostile", parsed.value("search_url_template"))
+            assertEquals("Find", parsed.value("search_label"))
+        }
+    }
+
+    @Test
+    fun `an empty search template imports as the way to have no search entry`() {
+        val text = envelopeOf("search_url_template" to """{"type":"string","value":""}""")
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals("", parsed.value("search_url_template"))
+    }
+
     // --- charset ---
 
     @Test

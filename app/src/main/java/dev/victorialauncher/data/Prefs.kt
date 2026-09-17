@@ -125,6 +125,8 @@ class Prefs(private val context: Context) {
         val STATUS_BAR_PEEK_SECONDS = intPreferencesKey("status_bar_peek_seconds")
         val AZ_BAND_TOP_FRACTION = floatPreferencesKey("az_band_top_fraction")
         val AZ_BAND_HEIGHT_FRACTION = floatPreferencesKey("az_band_height_fraction")
+        val SEARCH_URL_TEMPLATE = stringPreferencesKey("search_url_template")
+        val SEARCH_LABEL = stringPreferencesKey("search_label")
     }
 
     companion object {
@@ -201,6 +203,8 @@ class Prefs(private val context: Context) {
             Keys.STATUS_BAR_PEEK_SECONDS.name to ExpectedType.INT,
             Keys.AZ_BAND_TOP_FRACTION.name to ExpectedType.FLOAT,
             Keys.AZ_BAND_HEIGHT_FRACTION.name to ExpectedType.FLOAT,
+            Keys.SEARCH_URL_TEMPLATE.name to ExpectedType.STRING,
+            Keys.SEARCH_LABEL.name to ExpectedType.STRING,
         )
     }
 
@@ -348,6 +352,13 @@ class Prefs(private val context: Context) {
 
     /** Absolute path of the typeface the user supplied, once it has been copied in. */
     val fontFile: Flow<String?> = data.map { it[Keys.FONT_FILE] }.distinctUntilChanged()
+
+    /** Blank until the user sets one, which is what keeps the search row out of the list. */
+    val searchUrlTemplate: Flow<String> =
+        data.map { it[Keys.SEARCH_URL_TEMPLATE] ?: "" }.distinctUntilChanged()
+
+    /** Blank means the localized default name, so nothing is stored until it is overridden. */
+    val searchLabel: Flow<String> = data.map { it[Keys.SEARCH_LABEL] ?: "" }.distinctUntilChanged()
 
     /**
      * Whether the launcher turns with the device.
@@ -721,6 +732,15 @@ class Prefs(private val context: Context) {
         context.dataStore.edit { pref ->
             if (path == null) pref.remove(Keys.FONT_FILE) else pref[Keys.FONT_FILE] = path
         }
+    }
+
+    /** An empty string clears it, the same as every other blank-means-unset string here. */
+    suspend fun setSearchUrlTemplate(template: String) {
+        context.dataStore.edit { it[Keys.SEARCH_URL_TEMPLATE] = template }
+    }
+
+    suspend fun setSearchLabel(label: String) {
+        context.dataStore.edit { it[Keys.SEARCH_LABEL] = label }
     }
 
     suspend fun setAllowRotation(v: Boolean) {

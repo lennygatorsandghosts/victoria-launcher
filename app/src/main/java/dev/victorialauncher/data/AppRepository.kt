@@ -17,6 +17,7 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import dev.victorialauncher.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,7 +39,8 @@ class AppRepository(
         get() = context.getSystemService(UserManager::class.java)
 
     /**
-     * Every launchable activity across every profile the launcher can see.
+     * Every launchable activity across every profile the launcher can see, plus the search row
+     * if one is configured.
      *
      * LauncherApps rather than PackageManager, because queryIntentActivities only ever sees
      * the profile we are running in — a work profile or a private space is invisible to it.
@@ -47,10 +49,13 @@ class AppRepository(
      *
      * A locked private space simply drops out of getUserProfiles, so its apps disappear from
      * the list until it is unlocked. That is the intended behavior, not a failure to handle.
+     *
+     * [searchUrlTemplate] is whatever is stored for the search button, unvalidated — the row
+     * is only appended once it actually [SearchUrl.validate]s, so a half-typed template in
+     * Settings simply leaves the row absent rather than present and broken.
      */
-    fun queryAllApps(): List<AppInfo> {
-        val profiles = runCatching { userManager.userProfiles }.getOrNull().orEmpty()
-        return profiles
+    fun queryAllApps(searchUrlTemplate: String = "", searchLabel: String = ""): List<AppInfo> {
+        val apps = runCatching { userManager.userProfiles }.getOrNull().orEmpty()
             .flatMap { user ->
                 val serial = runCatching { userManager.getSerialNumberForUser(user) }.getOrDefault(0L)
                 // Asking about a profile we are not the launcher for throws rather than
@@ -79,6 +84,15 @@ class AppRepository(
             .plus(queryPinnedShortcuts())
             .distinctBy { it.key }
             .sortedBy { it.label.lowercase() }
+
+        if (SearchUrl.validate(searchUrlTemplate) !is SearchUrl.Validation.Ok) return apps
+
+        val label = searchLabel.trim().ifEmpty { context.getString(R.string.search_entry_default_label) }
+        return apps + AppInfo(
+            componentName = ComponentName(context.packageName, "search"),
+            label = label,
+            kind = EntryKind.SEARCH,
+        )
     }
 
     /**
@@ -189,6 +203,12 @@ class AppRepository(
         // A shortcut's own picture, badged with the app that published it. Falling through
         // means it has none of its own, and the publisher's app icon below is the answer.
         if (app.kind == EntryKind.SHORTCUT) shortcutIcon(app)?.let { return it }
+        // Not backed by any installed package, so there is nothing for LauncherApps or
+        // PackageManager to look up — an adaptive icon of our own, drawn the same shape as
+        // everything else so it does not stand out among real app icons.
+        if (app.kind == EntryKind.SEARCH) {
+            return ContextCompat.getDrawable(context, R.drawable.ic_search_entry) ?: pm.defaultActivityIcon
+        }
         val user = app.user
         if (user != null) {
             val activity = runCatching {

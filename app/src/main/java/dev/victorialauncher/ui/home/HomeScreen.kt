@@ -1049,7 +1049,8 @@ private fun FavoriteRow(
                 leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
                 onClick = onEditLayout,
             )
-            // App info belongs to an app; there is no package screen to open for a shortcut.
+            // App info belongs to an app; a shortcut or the search entry has no package screen
+            // to open.
             if (app.kind == EntryKind.APP) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.action_app_info)) },
