@@ -564,6 +564,7 @@ fun HomeRoute(
                     favBand = ScrubBand(topPx = top, heightPx = bottom - top)
                 },
                 nowPlayingHasContent = nowPlayingHasContent,
+                homeHeaderEnabled = settings.homeHeaderEnabled,
                 contentColor = settings.contentColor,
                 showFavoriteLabels = settings.showFavoriteLabels,
                 alignment = settings.alignment,
@@ -903,6 +904,7 @@ data class HomeSettings(
     val dimColor: Int,
     val hapticsEnabled: Boolean,
     val showFavoriteLabels: Boolean,
+    val homeHeaderEnabled: Boolean,
     val doubleTapToLock: Boolean,
     val contentColor: Color,
     /** Validated already — see AppRepository.queryAllApps — so the dialog never has to check. */

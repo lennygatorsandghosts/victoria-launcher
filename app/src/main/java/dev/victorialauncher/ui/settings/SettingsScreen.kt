@@ -103,6 +103,7 @@ fun SettingsScreen(
     hapticsEnabled: Boolean,
     dimHomeAlpha: Float,
     showFavoriteLabels: Boolean,
+    homeHeaderEnabled: Boolean,
     textColorMode: TextColorMode,
     textColorCustom: Int,
     dimColor: Int,
@@ -143,6 +144,7 @@ fun SettingsScreen(
     onSetHaptics: (Boolean) -> Unit,
     onSetDimHome: (Float) -> Unit,
     onSetShowFavoriteLabels: (Boolean) -> Unit,
+    onSetHomeHeaderEnabled: (Boolean) -> Unit,
     onSetTextColorMode: (TextColorMode) -> Unit,
     onSetTextColorCustom: (Int) -> Unit,
     onSetDimColor: (Int) -> Unit,
@@ -283,6 +285,8 @@ fun SettingsScreen(
                     IconSideRow(iconSide, onSetIconSide)
                     RowDivider()
                     SwitchRow(stringResource(R.string.settings_show_names), showFavoriteLabels, onSetShowFavoriteLabels)
+                    RowDivider()
+                    SwitchRow(stringResource(R.string.settings_home_header), homeHeaderEnabled, onSetHomeHeaderEnabled)
                     RowDivider()
                     SwitchRow(stringResource(R.string.settings_hide_status_bar), hideStatusBar, onSetHideStatusBar)
                     RowDivider()

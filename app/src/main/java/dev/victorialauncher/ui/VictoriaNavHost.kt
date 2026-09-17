@@ -358,6 +358,7 @@ fun VictoriaNavHost(
     val hapticsEnabled by app.prefs.hapticsEnabled.collectAsState(initial = true)
     val dimHomeAlpha by app.prefs.dimHomeAlpha.collectAsState(initial = 0f)
     val showFavoriteLabels by app.prefs.showFavoriteLabels.collectAsState(initial = true)
+    val homeHeaderEnabled by app.prefs.homeHeaderEnabled.collectAsState(initial = true)
     val textColorMode by app.prefs.textColorMode.collectAsState(initial = TextColorMode.AUTO)
     val doubleTapToLock by app.prefs.doubleTapToLock.collectAsState(initial = false)
     val widgetId by app.prefs.widgetId.collectAsState(initial = -1)
@@ -542,6 +543,7 @@ fun VictoriaNavHost(
         dimColor = dimColor,
         hapticsEnabled = hapticsEnabled,
         showFavoriteLabels = showFavoriteLabels,
+        homeHeaderEnabled = homeHeaderEnabled,
         doubleTapToLock = doubleTapToLock,
         contentColor = contentColor,
         searchUrlTemplate = searchUrlTemplate,
@@ -695,6 +697,7 @@ fun VictoriaNavHost(
                 hapticsEnabled = hapticsEnabled,
                 dimHomeAlpha = dimHomeAlpha,
                 showFavoriteLabels = showFavoriteLabels,
+                homeHeaderEnabled = homeHeaderEnabled,
                 textColorMode = textColorMode,
                 textColorCustom = textColorCustom,
                 dimColor = dimColor,
@@ -734,6 +737,7 @@ fun VictoriaNavHost(
                 onSetHaptics = { scope.launch { app.prefs.setHapticsEnabled(it) } },
                 onSetDimHome = { scope.launch { app.prefs.setDimHomeAlpha(it) } },
                 onSetShowFavoriteLabels = { scope.launch { app.prefs.setShowFavoriteLabels(it) } },
+                onSetHomeHeaderEnabled = { scope.launch { app.prefs.setHomeHeaderEnabled(it) } },
                 onSetTextColorMode = { scope.launch { app.prefs.setTextColorMode(it) } },
                 onSetTextColorCustom = { scope.launch { app.prefs.setTextColorCustom(it) } },
                 onSetDimColor = { scope.launch { app.prefs.setDimColor(it) } },

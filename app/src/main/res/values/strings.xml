@@ -62,6 +62,7 @@
     <!-- Toasts -->
     <string name="toast_enable_accessibility_shade">Enable Vicky+ in Settings → Accessibility to open notifications</string>
     <string name="toast_enable_accessibility_lock">Enable Vicky+ in Settings → Accessibility to lock the screen</string>
+    <string name="toast_calendar_unavailable">No calendar app found</string>
 
     <!-- Settings -->
     <string name="settings_title">Vicky+ settings</string>
@@ -116,6 +117,7 @@
     <string name="settings_alignment_favorites">Favorites alignment</string>
     <string name="settings_alignment_applist">App list alignment</string>
     <string name="settings_icon_side">Icon side</string>
+    <string name="settings_home_header">Show date and battery</string>
     <string name="settings_shade_gesture">Swipe down for notifications</string>
     <string name="settings_shade_ready">Ready — pull down on the home screen</string>
     <string name="settings_shade_not_ready">Pull down on the home screen. If nothing happens, enable Vicky+ under Accessibility — and if that switch is greyed out, allow restricted settings from App info first.</string>

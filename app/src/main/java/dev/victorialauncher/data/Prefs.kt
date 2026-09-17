@@ -106,6 +106,7 @@ class Prefs(private val context: Context) {
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
         val DIM_HOME_ALPHA = floatPreferencesKey("dim_home_alpha")
         val SHOW_FAVORITE_LABELS = booleanPreferencesKey("show_favorite_labels")
+        val HOME_HEADER_ENABLED = booleanPreferencesKey("home_header_enabled")
         val TEXT_COLOR_MODE = stringPreferencesKey("text_color_mode")
         val DOUBLE_TAP_TO_LOCK = booleanPreferencesKey("double_tap_to_lock")
         val EDGE_SIDE = stringPreferencesKey("edge_side")
@@ -192,6 +193,7 @@ class Prefs(private val context: Context) {
             Keys.HAPTICS_ENABLED.name to bool(),
             Keys.DIM_HOME_ALPHA.name to float(0f, 0.85f), // SettingsScreen dim-home slider
             Keys.SHOW_FAVORITE_LABELS.name to bool(),
+            Keys.HOME_HEADER_ENABLED.name to bool(),
             Keys.TEXT_COLOR_MODE.name to string(),
             Keys.DOUBLE_TAP_TO_LOCK.name to bool(),
             Keys.EDGE_SIDE.name to string(),
@@ -486,6 +488,9 @@ class Prefs(private val context: Context) {
 
     val showFavoriteLabels: Flow<Boolean> =
         data.map { it[Keys.SHOW_FAVORITE_LABELS] ?: true }.distinctUntilChanged()
+
+    val homeHeaderEnabled: Flow<Boolean> =
+        data.map { it[Keys.HOME_HEADER_ENABLED] ?: true }.distinctUntilChanged()
 
     val textColorMode: Flow<TextColorMode> = data.map {
         runCatching { TextColorMode.valueOf(it[Keys.TEXT_COLOR_MODE] ?: TextColorMode.AUTO.name) }
@@ -870,6 +875,10 @@ class Prefs(private val context: Context) {
 
     suspend fun setShowFavoriteLabels(v: Boolean) {
         context.dataStore.edit { it[Keys.SHOW_FAVORITE_LABELS] = v }
+    }
+
+    suspend fun setHomeHeaderEnabled(v: Boolean) {
+        context.dataStore.edit { it[Keys.HOME_HEADER_ENABLED] = v }
     }
 
     suspend fun setTextColorMode(v: TextColorMode) {
