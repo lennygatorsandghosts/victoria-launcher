@@ -279,6 +279,57 @@ class ImportValidationTest {
         assertTrue(parsed!!.values.isEmpty())
     }
 
+    // --- SEC-M2: a value that fits its machine type can still be nonsense as this setting ---
+
+    @Test
+    fun `a negative side padding is dropped rather than crashing Compose later`() {
+        val text = envelopeOf(
+            "side_padding_dp" to """{"type":"int","value":-1}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
+    }
+
+    @Test
+    fun `an absurdly large icon size is dropped`() {
+        val text = envelopeOf(
+            "icon_size_dp" to """{"type":"int","value":100000}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
+    }
+
+    @Test
+    fun `values at the edge of a declared numeric range are accepted`() {
+        // Ints, not a float, so the boundary check itself doesn't ride on double-to-float
+        // rounding of a decimal literal -- the range check is exercised the same way either
+        // type, and this way the assertion is exact.
+        val text = envelopeOf(
+            "icon_size_dp" to """{"type":"int","value":32}""",
+            "label_size_sp" to """{"type":"int","value":28}""",
+            "status_bar_peek_seconds" to """{"type":"int","value":30}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(32, parsed.value("icon_size_dp"))
+        assertEquals(28, parsed.value("label_size_sp"))
+        assertEquals(30, parsed.value("status_bar_peek_seconds"))
+    }
+
+    @Test
+    fun `every INT or FLOAT preference in the allow-list declares a numeric range`() {
+        val numericWithoutRange = Prefs.importAllowList.filterValues {
+            (it.type == ExpectedType.INT || it.type == ExpectedType.FLOAT) && it.range == null
+        }
+        assertTrue(
+            "these numeric keys have no declared range: ${numericWithoutRange.keys}",
+            numericWithoutRange.isEmpty(),
+        )
+    }
+
     // --- icon override value shapes: AppIcon.decodeIconOverride only ever expects two of these ---
 
     @Test

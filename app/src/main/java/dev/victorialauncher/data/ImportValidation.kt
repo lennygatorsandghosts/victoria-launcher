@@ -45,6 +45,25 @@ internal enum class ExpectedType(val tag: String) {
 internal class ParsedExport(val values: List<Pair<Preferences.Key<*>, Any>>)
 
 /**
+ * The type [Prefs.importAllowList] restores a name under, and -- for INT/FLOAT -- the semantic
+ * range a legitimate value has to sit inside (SEC-M2). The Int/Float *machine* range is already
+ * enforced by [readTypedValue]; [range] catches a value that fits the type but makes no sense as
+ * this specific setting -- a negative side padding, say, which later throws out of
+ * `Modifier.padding`, or an icon size in the thousands, which likely overflows Compose's layout
+ * constraints. Every INT/FLOAT entry in [Prefs.importAllowList] declares one, even where that
+ * only means "the type's own full range" (an ARGB color, say, where the sign bit is just the
+ * alpha byte) -- a reflection-based test in ImportValidationTest fails if a numeric key is added
+ * without one, the same way the allow-list-coverage test already does for a missing key.
+ */
+internal data class KnownPreference(val type: ExpectedType, val range: NumericRange? = null)
+
+/** A closed range for one INT or FLOAT preference; see [KnownPreference.range]. */
+internal sealed class NumericRange {
+    data class OfInt(val min: Int, val max: Int) : NumericRange()
+    data class OfFloat(val min: Float, val max: Float) : NumericRange()
+}
+
+/**
  * The four string-valued preferences that are themselves a JSON document, and so need a second,
  * shape-level check beyond "is a string under the length cap".
  */
@@ -61,7 +80,8 @@ private val JSON_STRING_KEYS = setOf(
  * Pure: no Android or DataStore-runtime types beyond [Preferences.Key] itself, which -- like
  * the rest of `androidx.datastore.preferences.core` -- has no Android dependency and behaves
  * identically under a plain JVM unit test and on-device. [known] is the allow-list of real
- * preference names and their declared type; [Prefs.importAllowList] is the one built from
+ * preference names, their declared type, and -- for INT/FLOAT -- the range a legitimate value
+ * has to sit inside (see [KnownPreference]); [Prefs.importAllowList] is the one built from
  * [Prefs.Keys] and used in production, kept in sync with it by a reflection-based test rather
  * than by two hand-written lists agreeing by luck.
  *
@@ -69,9 +89,9 @@ private val JSON_STRING_KEYS = setOf(
  * with a setting this one doesn't know about yet, still restores everything it does recognize
  * instead of refusing the whole file. A name it does know, but whose `type` tag doesn't match
  * the declared type, or whose value doesn't check out (wrong JSON type, non-finite number,
- * out-of-range number, over a size cap, or -- for the four JSON-shaped string keys -- not
- * actually valid JSON of the expected shape) is dropped the same way, one entry at a time,
- * rather than failing the whole import over a single bad row.
+ * out-of-range number, over a size cap, outside its declared [NumericRange], or -- for the four
+ * JSON-shaped string keys -- not actually valid JSON of the expected shape) is dropped the same
+ * way, one entry at a time, rather than failing the whole import over a single bad row.
  *
  * Returns null when the file isn't recognizable as a Victoria Launcher export at all: too
  * large, not JSON, missing the envelope's `values` object, a `format` major this build doesn't
@@ -83,7 +103,7 @@ private val JSON_STRING_KEYS = setOf(
  * turned out to be untrustworthy," and only the second is worth refusing outright rather than
  * silently wiping every existing setting.
  */
-internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>): ParsedExport? {
+internal fun parseSettingsExport(text: String, known: Map<String, KnownPreference>): ParsedExport? {
     if (text.length > MAX_IMPORT_FILE_BYTES) return null
     // Some tools still emit one; it is invisible in most editors, and rejecting an otherwise
     // valid file over it would be a strange way to fail.
@@ -103,18 +123,26 @@ internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>)
         values.keys().forEach { name ->
             val expected = known[name] ?: return@forEach
             val entry = values.optJSONObject(name) ?: return@forEach
-            if (ExpectedType.fromTag(entry.optString("type", "")) != expected) return@forEach
-            var value = readTypedValue(entry, expected) ?: return@forEach
+            if (ExpectedType.fromTag(entry.optString("type", "")) != expected.type) return@forEach
+            var value = readTypedValue(entry, expected.type) ?: return@forEach
+            if (!isInDeclaredRange(value, expected.range)) return@forEach
             if (name in JSON_STRING_KEYS) {
                 value = sanitizeJsonStringValue(name, value as String) ?: return@forEach
             }
-            result.add(preferenceKey(name, expected) to value)
+            result.add(preferenceKey(name, expected.type) to value)
         }
         // CR-2: see the doc comment above -- a `values` object that had real entries but from
         // which nothing survived is not the same file as one that was honestly empty.
         if (values.length() > 0 && result.isEmpty()) return@runCatching null
         ParsedExport(result)
     }.getOrNull()
+}
+
+/** [KnownPreference.range], applied. `null` means the type's machine range is the whole story. */
+private fun isInDeclaredRange(value: Any, range: NumericRange?): Boolean = when (range) {
+    null -> true
+    is NumericRange.OfInt -> value is Int && value in range.min..range.max
+    is NumericRange.OfFloat -> value is Float && value in range.min..range.max
 }
 
 private fun preferenceKey(name: String, type: ExpectedType): Preferences.Key<*> = when (type) {
