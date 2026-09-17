@@ -26,11 +26,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "dev.victorialauncher"
+        // A fork installs beside the original, so it needs its own id. The namespace, and with
+        // it every Kotlin package, stays upstream's so that merging upstream stays painless.
+        applicationId = "org.lemmyorleans.vickyplus"
         minSdk = 26
         targetSdk = 35
-        versionCode = 71
-        versionName = "0.62.2"
+        versionCode = 7101 // upstream versionCode * 100 + fork revision
+        versionName = "0.62.2-vicky.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

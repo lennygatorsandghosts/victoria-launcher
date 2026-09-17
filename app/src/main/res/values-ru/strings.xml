@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">Victoria Launcher</string>
-    <string name="accessibility_description">Позволяет открывать панель уведомлений жестом смахивания вниз. Victoria Launcher не умеет читать содержимое экрана.</string>
+    <string name="app_name">Vicky+</string>
+    <string name="accessibility_description">Позволяет открывать панель уведомлений жестом смахивания вниз. Vicky+ не умеет читать содержимое экрана.</string>
 
     <!-- Общие действия -->
     <string name="action_back">Назад</string>
@@ -15,7 +15,7 @@
     <string name="action_edit_icon_and_name">Персонализировать</string>
     <string name="action_move_to_folder">Переместить в папку…</string>
     <string name="action_change_icon">Изменить иконку…</string>
-    <string name="action_open_settings">Настройки Victoria Launcher</string>
+    <string name="action_open_settings">Настройки Vicky+</string>
 
     <!-- Главный экран -->
     <string name="home_drag_handle">Сортировать</string>
@@ -56,11 +56,11 @@
     <string name="applist_search">Поиск</string>
 
     <!-- Toasts -->
-    <string name="toast_enable_accessibility_shade">Включите Victoria Launcher в Настройках → Специальные возможности для открытия уведомлений</string>
-    <string name="toast_enable_accessibility_lock">Включите Victoria Launcher в Настройках → Специальные возможности для блокировки экрана</string>
+    <string name="toast_enable_accessibility_shade">Включите Vicky+ в Настройках → Специальные возможности для открытия уведомлений</string>
+    <string name="toast_enable_accessibility_lock">Включите Vicky+ в Настройках → Специальные возможности для блокировки экрана</string>
 
     <!-- Настройки -->
-    <string name="settings_title">Настройки Victoria Launcher</string>
+    <string name="settings_title">Настройки Vicky+</string>
     <string name="settings_section_appearance">Внешний вид</string>
     <string name="settings_section_behavior">Поведение</string>
     <string name="settings_section_now_playing">Виджет проигрывателя</string>
@@ -110,7 +110,7 @@
     <string name="settings_icon_side">Расположение иконок</string>
     <string name="settings_shade_gesture">Отображение уведомлений при свайпе вниз</string>
     <string name="settings_shade_ready">Готово — потяните вниз на главном экране.</string>
-    <string name="settings_shade_not_ready">Потяните вниз на главном экране. Если ничего не происходит, Включите Victoria Launcher в специальных возможностях. Если и эта опция недоступна, то для начала разрешите доступ к настройкам в меню информации о приложении.</string>
+    <string name="settings_shade_not_ready">Потяните вниз на главном экране. Если ничего не происходит, Включите Vicky+ в специальных возможностях. Если и эта опция недоступна, то для начала разрешите доступ к настройкам в меню информации о приложении.</string>
     <string name="settings_enable">Включить</string>
     <string name="settings_app_info">Информация о приложении</string>
     <string name="settings_now_playing_show">Отобразить виджет &quot;Сейчас играет&quot;</string>
@@ -174,7 +174,7 @@
     <string name="icon_picker_no_matches">Иконок по запросу “%1$s” не найдено.</string>
 
     <!-- Приветствие -->
-    <string name="welcome_title">Приветствую в Victoria Launcher</string>
+    <string name="welcome_title">Приветствую в Vicky+</string>
     <string name="welcome_favorites">Удерживайте по свободному месту чтобы вызвать меню настроек и добавления избранных.</string>
     <string name="welcome_widget">Проведите пальцем от любого края экрана, чтобы открыть все приложения, и поведите пальцем по алфавитной волне чтобы перейти к нужной букве.</string>
     <string name="welcome_layout">В режиме редактирования главного экрана вы можете передвигать объекты и настраивать отступы.</string>
