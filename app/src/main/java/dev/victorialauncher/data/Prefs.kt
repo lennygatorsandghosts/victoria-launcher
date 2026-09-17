@@ -11,11 +11,12 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import androidx.datastore.preferences.core.longPreferencesKey
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -61,6 +62,8 @@ private fun string() = KnownPreference(ExpectedType.STRING)
 private fun stringSet() = KnownPreference(ExpectedType.STRING_SET)
 private fun int(min: Int, max: Int) = KnownPreference(ExpectedType.INT, NumericRange.OfInt(min, max))
 private fun float(min: Float, max: Float) = KnownPreference(ExpectedType.FLOAT, NumericRange.OfFloat(min, max))
+private fun buttonActionString() =
+    KnownPreference(ExpectedType.STRING, maxStringLength = 512, stringValidator = { ButtonAction.parse(it) != null })
 
 /** [json] to write out, and whether anything belonging to the private space was left out of it. */
 data class ExportResult(val json: String, val omittedPrivateSpace: Boolean)
@@ -130,6 +133,11 @@ class Prefs(private val context: Context) {
         val EDGE_ZONE_WIDTH_DP = intPreferencesKey("edge_zone_width_dp")
         val QUICK_LAUNCH_LEFT = stringPreferencesKey(PREF_QUICK_LAUNCH_LEFT)
         val QUICK_LAUNCH_RIGHT = stringPreferencesKey(PREF_QUICK_LAUNCH_RIGHT)
+        val VBUTTON_TAP = stringPreferencesKey(PREF_VBUTTON_TAP)
+        val VBUTTON_SWIPE_UP = stringPreferencesKey(PREF_VBUTTON_SWIPE_UP)
+        val VBUTTON_SWIPE_LEFT = stringPreferencesKey(PREF_VBUTTON_SWIPE_LEFT)
+        val VBUTTON_SWIPE_RIGHT = stringPreferencesKey(PREF_VBUTTON_SWIPE_RIGHT)
+        val VBUTTON_ENABLED = booleanPreferencesKey("vbutton_enabled")
         val LAYOUT_DEFAULTS_VERSION = intPreferencesKey("layout_defaults_version")
         val WELCOME_SEEN = booleanPreferencesKey("welcome_seen")
         val SHOW_APP_ICONS = booleanPreferencesKey("show_app_icons")
@@ -222,6 +230,11 @@ class Prefs(private val context: Context) {
             Keys.EDGE_ZONE_WIDTH_DP.name to int(32, 96), // SettingsScreen edge-zone-width slider
             Keys.QUICK_LAUNCH_LEFT.name to string(),
             Keys.QUICK_LAUNCH_RIGHT.name to string(),
+            Keys.VBUTTON_TAP.name to buttonActionString(),
+            Keys.VBUTTON_SWIPE_UP.name to buttonActionString(),
+            Keys.VBUTTON_SWIPE_LEFT.name to buttonActionString(),
+            Keys.VBUTTON_SWIPE_RIGHT.name to buttonActionString(),
+            Keys.VBUTTON_ENABLED.name to bool(),
             // 0 = installed before this scheme, 1 = a genuine first run -- see ensureInstallMarker().
             Keys.LAYOUT_DEFAULTS_VERSION.name to int(0, 1),
             Keys.WELCOME_SEEN.name to bool(),
@@ -583,6 +596,21 @@ class Prefs(private val context: Context) {
 
     val quickLaunchRight: Flow<String?> = data.map { it[Keys.QUICK_LAUNCH_RIGHT] }.distinctUntilChanged()
 
+    val vbuttonTap: Flow<String?> = data.map { it[Keys.VBUTTON_TAP] }.distinctUntilChanged()
+    val vbuttonSwipeUp: Flow<String?> = data.map { it[Keys.VBUTTON_SWIPE_UP] }.distinctUntilChanged()
+    val vbuttonSwipeLeft: Flow<String?> = data.map { it[Keys.VBUTTON_SWIPE_LEFT] }.distinctUntilChanged()
+    val vbuttonSwipeRight: Flow<String?> = data.map { it[Keys.VBUTTON_SWIPE_RIGHT] }.distinctUntilChanged()
+    val vbuttonEnabled: Flow<Boolean> = data.map { it[Keys.VBUTTON_ENABLED] ?: true }.distinctUntilChanged()
+    val vbuttonStoredActions: Flow<Map<ButtonSlot, String?>> =
+        combine(vbuttonTap, vbuttonSwipeUp, vbuttonSwipeLeft, vbuttonSwipeRight) { tap, up, left, right ->
+            mapOf(
+                ButtonSlot.TAP to tap,
+                ButtonSlot.SWIPE_UP to up,
+                ButtonSlot.SWIPE_LEFT to left,
+                ButtonSlot.SWIPE_RIGHT to right,
+            )
+        }.distinctUntilChanged()
+
     /** Drawing icons at all; off leaves text-only rows everywhere. */
     val showAppIcons: Flow<Boolean> = data.map { it[Keys.SHOW_APP_ICONS] ?: true }.distinctUntilChanged()
 
@@ -698,6 +726,10 @@ class Prefs(private val context: Context) {
             // nothing once the row is gone for good.
             if (pref[Keys.QUICK_LAUNCH_LEFT] == componentKey) pref.remove(Keys.QUICK_LAUNCH_LEFT)
             if (pref[Keys.QUICK_LAUNCH_RIGHT] == componentKey) pref.remove(Keys.QUICK_LAUNCH_RIGHT)
+            if (ButtonAction.parse(pref[Keys.VBUTTON_TAP]) == ButtonAction.LaunchEntry(componentKey)) pref.remove(Keys.VBUTTON_TAP)
+            if (ButtonAction.parse(pref[Keys.VBUTTON_SWIPE_UP]) == ButtonAction.LaunchEntry(componentKey)) pref.remove(Keys.VBUTTON_SWIPE_UP)
+            if (ButtonAction.parse(pref[Keys.VBUTTON_SWIPE_LEFT]) == ButtonAction.LaunchEntry(componentKey)) pref.remove(Keys.VBUTTON_SWIPE_LEFT)
+            if (ButtonAction.parse(pref[Keys.VBUTTON_SWIPE_RIGHT]) == ButtonAction.LaunchEntry(componentKey)) pref.remove(Keys.VBUTTON_SWIPE_RIGHT)
         }
     }
 
@@ -989,6 +1021,23 @@ class Prefs(private val context: Context) {
         context.dataStore.edit { pref ->
             if (componentKey.isNullOrBlank()) pref.remove(key) else pref[key] = componentKey
         }
+    }
+
+    suspend fun setVButtonAction(slot: ButtonSlot, action: String?) {
+        val key = when (slot) {
+            ButtonSlot.TAP -> Keys.VBUTTON_TAP
+            ButtonSlot.SWIPE_UP -> Keys.VBUTTON_SWIPE_UP
+            ButtonSlot.SWIPE_LEFT -> Keys.VBUTTON_SWIPE_LEFT
+            ButtonSlot.SWIPE_RIGHT -> Keys.VBUTTON_SWIPE_RIGHT
+        }
+        context.dataStore.edit { pref ->
+            val encoded = action?.takeIf { ButtonAction.parse(it) != null }
+            if (encoded.isNullOrBlank()) pref.remove(key) else pref[key] = encoded
+        }
+    }
+
+    suspend fun setVButtonEnabled(v: Boolean) {
+        context.dataStore.edit { it[Keys.VBUTTON_ENABLED] = v }
     }
 
     suspend fun setShowAppIcons(v: Boolean) {

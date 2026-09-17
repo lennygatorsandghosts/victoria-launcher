@@ -137,6 +137,28 @@ class PrivateSpaceExportTest {
         assertEquals(a, stripPrivateSpaceFromExport("quick_launch_left_key", a, strip))
     }
 
+    // --- vbutton_* (an action string that may hold one key) ---------------------------------
+
+    @Test
+    fun `a Vicky button slot launching a private key is left out entirely`() {
+        val raw = "entry:$bPrivate"
+        assertNull(stripPrivateSpaceFromExport(PREF_VBUTTON_TAP, raw, strip))
+        assertNull(stripPrivateSpaceFromExport(PREF_VBUTTON_SWIPE_UP, raw, strip))
+        assertNull(stripPrivateSpaceFromExport(PREF_VBUTTON_SWIPE_LEFT, raw, strip))
+        assertNull(stripPrivateSpaceFromExport(PREF_VBUTTON_SWIPE_RIGHT, raw, strip))
+    }
+
+    @Test
+    fun `a Vicky button slot launching an ordinary key survives`() {
+        assertEquals("entry:$a", stripPrivateSpaceFromExport(PREF_VBUTTON_TAP, "entry:$a", strip))
+    }
+
+    @Test
+    fun `a Vicky button slot with a built-in action survives`() {
+        assertEquals("web", stripPrivateSpaceFromExport(PREF_VBUTTON_TAP, "web", strip))
+        assertEquals("url:https://example.org", stripPrivateSpaceFromExport(PREF_VBUTTON_TAP, "url:https://example.org", strip))
+    }
+
     // --- cross-cutting behavior ---------------------------------------------------------------
 
     @Test
@@ -151,6 +173,7 @@ class PrivateSpaceExportTest {
         assertSame(renames, stripPrivateSpaceFromExport("name_overrides_json", renames, keep))
         assertSame(folders, stripPrivateSpaceFromExport("folders_json", folders, keep))
         assertEquals(bPrivate, stripPrivateSpaceFromExport("quick_launch_left_key", bPrivate, keep))
+        assertEquals("entry:$bPrivate", stripPrivateSpaceFromExport(PREF_VBUTTON_TAP, "entry:$bPrivate", keep))
     }
 
     @Test
