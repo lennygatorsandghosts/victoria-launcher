@@ -60,7 +60,12 @@ fun SearchQueryDialog(
                 singleLine = true,
                 placeholder = { Text(stringResource(R.string.search_dialog_hint)) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                // A web search box lets the keyboard learn whatever is typed into it, the same
+                // as any other autocorrect-fed field; turning correction off is what's exposed
+                // here. Compose 1.7.x has no public path to the stronger EditorInfo flag,
+                // IME_FLAG_NO_PERSONALIZED_LEARNING, without dropping to an AndroidView-wrapped
+                // EditText in place of this TextField, which is out of scope for this fix.
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, autoCorrectEnabled = false),
                 keyboardActions = KeyboardActions(onSearch = { submit() }),
                 modifier = Modifier.focusRequester(focusRequester),
             )
