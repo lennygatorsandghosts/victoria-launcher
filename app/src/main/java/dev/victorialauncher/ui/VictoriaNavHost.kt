@@ -43,6 +43,7 @@ import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.HomePaddings
+import dev.victorialauncher.data.MAX_IMPORT_FILE_BYTES
 import dev.victorialauncher.data.QuickLaunchSlot
 import dev.victorialauncher.data.TextColorMode
 import androidx.compose.ui.res.stringResource
@@ -70,6 +71,31 @@ import dev.victorialauncher.widget.WidgetSlotActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+
+/**
+ * Reads at most [maxBytes] from [stream], decoded as UTF-8, or null if there turns out to be
+ * more than that. `readText()` on a raw `InputStream` has no such limit -- it loads the whole
+ * SAF stream into one String before anything downstream gets a chance to say no, which is an
+ * easy way for a large-enough file to run the app out of memory before import validation ever
+ * starts. This is the only place that needs to be bounded like this: the parser it feeds,
+ * [dev.victorialauncher.data.parseSettingsExport], checks the same cap again on the resulting
+ * String as a backstop for any other caller.
+ */
+private fun readBoundedUtf8(stream: InputStream, maxBytes: Int): String? {
+    val buffer = ByteArrayOutputStream()
+    val chunk = ByteArray(8 * 1024)
+    var total = 0
+    while (true) {
+        val read = stream.read(chunk)
+        if (read < 0) break
+        total += read
+        if (total > maxBytes) return null
+        buffer.write(chunk, 0, read)
+    }
+    return String(buffer.toByteArray(), Charsets.UTF_8)
+}
 
 /**
  * Collects the stored settings once and hosts the navigation graph.
@@ -273,7 +299,7 @@ fun VictoriaNavHost(
         scope.launch {
             val text = withContext(Dispatchers.IO) {
                 runCatching {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    context.contentResolver.openInputStream(uri)?.use { readBoundedUtf8(it, MAX_IMPORT_FILE_BYTES) }
                 }.getOrNull()
             }
             val ok = text != null && app.prefs.importJson(text)
