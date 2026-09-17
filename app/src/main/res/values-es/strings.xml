@@ -229,4 +229,25 @@
     <string name="now_playing_previous">Anterior</string>
     <string name="now_playing_play_pause">Reproducir/pausar</string>
     <string name="now_playing_next">Siguiente</string>
+
+    <!-- Search button -->
+    <string name="search_entry_default_label">Buscar</string>
+    <string name="search_dialog_hint">Buscar en la web</string>
+    <string name="search_dialog_action">Buscar</string>
+    <string name="toast_search_failed">No se encontró un navegador para abrir esa búsqueda</string>
+    <string name="settings_section_search">Botón de búsqueda</string>
+    <string name="settings_search_button_detail">Abre en tu navegador la dirección de abajo, con lo que escribas en el lugar de %1$s</string>
+    <string name="settings_search_button_label">Etiqueta</string>
+    <string name="settings_search_button_url">URL de búsqueda</string>
+    <string name="settings_search_button_url_hint" formatted="false">https://search.example.org/search?q=%s</string>
+    <string name="settings_search_button_insecure">Esta dirección es http, no https — lo que busques no viaja cifrado</string>
+    <string name="search_url_error_too_long">Demasiado larga — 2048 caracteres como máximo</string>
+    <string name="search_url_error_control_character">Contiene un carácter que no puede formar parte de una URL</string>
+    <string name="search_url_error_no_placeholder">Necesita un %1$s donde va el texto buscado</string>
+    <string name="search_url_error_multiple_placeholders">Solo se permite un %1$s</string>
+    <string name="search_url_error_unsupported_scheme">Debe empezar por https:// o http://</string>
+    <string name="search_url_error_userinfo">No puede incluir un usuario antes de la dirección</string>
+    <string name="search_url_error_missing_host">Falta la dirección del sitio</string>
+    <string name="search_url_error_placeholder_in_authority">%1$s no puede formar parte de la dirección del sitio — solo de la ruta, la consulta o el fragmento que va después</string>
+    <string name="search_url_error_malformed">Eso no parece una URL válida</string>
 </resources>

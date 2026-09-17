@@ -229,4 +229,25 @@
     <string name="now_playing_previous">Previous</string>
     <string name="now_playing_play_pause">Play/pause</string>
     <string name="now_playing_next">Next</string>
+
+    <!-- Search button -->
+    <string name="search_entry_default_label">Search</string>
+    <string name="search_dialog_hint">Search the web</string>
+    <string name="search_dialog_action">Search</string>
+    <string name="toast_search_failed">Couldn\'t find a browser to open that search</string>
+    <string name="settings_section_search">Search button</string>
+    <string name="settings_search_button_detail">Opens the address below in your browser, with what you type in place of %1$s</string>
+    <string name="settings_search_button_label">Label</string>
+    <string name="settings_search_button_url">Search URL</string>
+    <string name="settings_search_button_url_hint" formatted="false">https://search.example.org/search?q=%s</string>
+    <string name="settings_search_button_insecure">This is a plain http address, not https — what you search is not encrypted</string>
+    <string name="search_url_error_too_long">Too long — 2048 characters at most</string>
+    <string name="search_url_error_control_character">Contains a character that can\'t be part of a URL</string>
+    <string name="search_url_error_no_placeholder">Needs a %1$s where the search text goes</string>
+    <string name="search_url_error_multiple_placeholders">Only one %1$s is allowed</string>
+    <string name="search_url_error_unsupported_scheme">Must start with https:// or http://</string>
+    <string name="search_url_error_userinfo">Can\'t include a username before the address</string>
+    <string name="search_url_error_missing_host">Missing the site\'s address</string>
+    <string name="search_url_error_placeholder_in_authority">%1$s can\'t be part of the site\'s address — only the path, query or fragment after it</string>
+    <string name="search_url_error_malformed">That doesn\'t look like a valid URL</string>
 </resources>
