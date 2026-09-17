@@ -20,11 +20,20 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import dev.victorialauncher.R
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** A few tries spread over about a second, since a pin request's shortcut can take a moment
+ *  to show up in the system's own pinned set after [LauncherApps.PinItemRequest.accept]
+ *  returns, not before. */
+private const val PIN_CONFIRM_ATTEMPTS = 5
+private const val PIN_CONFIRM_DELAY_MS = 200L
 
 class AppRepository(
     private val context: Context,
@@ -175,9 +184,13 @@ class AppRepository(
      * not remove one shortcut, it replaces the whole pinned set for a package in a profile,
      * so anything left out of that list is unpinned along with it.
      *
-     * Then everything stored under the key goes too. An app can be reinstalled and find its
-     * name, icon and place waiting; an unpinned shortcut never comes back, so what is left
-     * behind is only clutter nothing can reach.
+     * Then everything stored under the key goes too, but only once that call has actually
+     * gone through: if it threw — the host permission was lost, the profile went away mid-
+     * call — the shortcut is still pinned with the system, and forgetting its name, icon,
+     * folder, hidden flag, launch count and quick-launch slot now would strand them with
+     * nothing left to reconnect them to. An app can be reinstalled and find those waiting;
+     * an unpinned shortcut never comes back, so what is left behind after a real unpin is
+     * only clutter nothing can reach.
      */
     fun unpin(app: AppInfo) {
         if (app.kind != EntryKind.SHORTCUT) return
@@ -186,25 +199,71 @@ class AppRepository(
         val pinned = pinnedShortcuts().map {
             EntryKeys.ShortcutRef(it.info.`package`, it.info.id, it.serial)
         }
-        runCatching {
+        val unpinned = runCatching {
             launcherApps.pinShortcuts(
                 app.packageName,
                 PinnedShortcuts.remainingIds(pinned, removed),
                 app.user ?: Process.myUserHandle(),
             )
+        }.isSuccess
+        if (!unpinned) {
+            Toast.makeText(context, R.string.shortcut_unpin_failed, Toast.LENGTH_SHORT).show()
+            return
         }
         scope.launch { prefs.forgetEntry(app.key) }
         noteShortcutsChanged()
     }
 
     /**
-     * A shortcut the user has just agreed to pin. It joins their favorites, because "add to
-     * the home screen" is what they were asked; the write is on the app's own scope so it
-     * outlives the confirm screen, which finishes the moment they tap.
+     * Called once [LauncherApps.PinItemRequest.accept] has returned true for a shortcut from
+     * [pkg] with id [id] in profile [user] (serial [serial]): confirms the system actually
+     * pinned it, then joins it to the favorites, because "add to the home screen" is what the
+     * user was asked.
+     *
+     * Deliberately on this repository's own scope rather than the confirm screen's. That
+     * screen finishes the instant it calls this, and accept() taking effect can lag its own
+     * return by a moment (see [waitUntilPinned]) — if the write instead rode the screen's own
+     * scope, Cancel, a tap outside, rotation, or the screen merely stopping in that window
+     * would cancel it, leaving a shortcut the system has pinned but that never shows up here.
+     *
+     * Verifying rather than trusting accept()'s own answer is also what a forged pin request
+     * cannot get past: its binder can answer accept() however it likes, but it cannot make
+     * [waitUntilPinned] find a shortcut pinned that genuinely is not.
      */
-    fun addPinnedShortcut(key: String) {
-        scope.launch { prefs.addFavorite(key) }
-        noteShortcutsChanged()
+    fun confirmPinnedShortcut(pkg: String, id: String, user: UserHandle, serial: Long) {
+        scope.launch {
+            if (waitUntilPinned(pkg, id, user)) {
+                prefs.addFavorite(EntryKeys.shortcut(pkg, id, serial))
+                noteShortcutsChanged()
+            } else {
+                // This whole coroutine runs on the repository's Default-dispatched scope, so
+                // a Toast here needs Main asked for explicitly rather than however Toast.show
+                // elsewhere in this class gets it for free by already being called from the UI.
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, R.string.shortcut_pin_failed, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    /**
+     * Polls rather than trusting one look, since the shortcut a request just accepted can take
+     * a moment to reach the system's own pinned set.
+     */
+    private suspend fun waitUntilPinned(pkg: String, id: String, user: UserHandle): Boolean {
+        val query = LauncherApps.ShortcutQuery()
+            .setQueryFlags(LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED)
+            .setPackage(pkg)
+            .setShortcutIds(listOf(id))
+        repeat(PIN_CONFIRM_ATTEMPTS) { attempt ->
+            val pinned = runCatching { launcherApps.getShortcuts(query, user) }
+                .getOrNull()
+                .orEmpty()
+                .any { it.id == id }
+            if (pinned) return true
+            if (attempt < PIN_CONFIRM_ATTEMPTS - 1) delay(PIN_CONFIRM_DELAY_MS)
+        }
+        return false
     }
 
     /** Badged by the system, so a work or private-space app is recognizable at a glance. */
