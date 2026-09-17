@@ -11,6 +11,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class ImportValidationTest {
 
@@ -328,6 +330,54 @@ class ImportValidationTest {
             "these numeric keys have no declared range: ${numericWithoutRange.keys}",
             numericWithoutRange.isEmpty(),
         )
+    }
+
+    // --- CR-11: font_file must resolve inside the app's own files directory ---
+
+    @Test
+    fun `a font_file inside the allowed directory imports`() {
+        val filesDir = Files.createTempDirectory("filesDir").toFile()
+        val fontPath = File(filesDir, "custom_font").path
+        val text = envelopeOf("font_file" to """{"type":"string","value":"$fontPath"}""")
+        val parsed = parseSettingsExport(text, Prefs.importAllowList, filesDir)!!
+        assertEquals(fontPath, parsed.value("font_file"))
+    }
+
+    @Test
+    fun `a font_file outside the allowed directory is dropped`() {
+        val filesDir = Files.createTempDirectory("filesDir").toFile()
+        val elsewhere = Files.createTempDirectory("elsewhere").toFile()
+        val text = envelopeOf(
+            "font_file" to """{"type":"string","value":"${File(elsewhere, "x.ttf").path}"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList, filesDir)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
+    }
+
+    @Test
+    fun `a font_file that traverses out of the allowed directory with dot-dot is dropped`() {
+        val filesDir = Files.createTempDirectory("filesDir").toFile()
+        val traversal = File(filesDir, "../${filesDir.name}-sibling/x.ttf").path
+        val text = envelopeOf(
+            "font_file" to """{"type":"string","value":"$traversal"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList, filesDir)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
+    }
+
+    @Test
+    fun `a font_file is dropped when no allowed directory was given at all`() {
+        val text = envelopeOf(
+            "font_file" to """{"type":"string","value":"/data/data/dev.victorialauncher/files/custom_font"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     // --- icon override value shapes: AppIcon.decodeIconOverride only ever expects two of these ---

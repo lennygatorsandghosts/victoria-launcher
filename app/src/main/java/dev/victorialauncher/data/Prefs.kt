@@ -286,7 +286,9 @@ class Prefs(private val context: Context) {
      * restoring. Pulling that out into a top-level pure function is what makes it possible to
      * unit-test the hostile-input handling (oversize files, wrong types, malformed embedded
      * JSON, deliberately nested garbage) under a plain JVM test, with no DataStore or Context
-     * needed, against `org.json` the same way the rest of this file already does.
+     * needed, against `org.json` the same way the rest of this file already does. `context.filesDir`
+     * is the one piece [parseSettingsExport] cannot get for itself, needed only to check a
+     * `font_file` value resolves inside it (CR-11).
      *
      * A name in the file that isn't a preference this build declares is dropped rather than
      * failing the import -- see [Keys]/[importAllowList] -- and every key absent from the file
@@ -295,7 +297,7 @@ class Prefs(private val context: Context) {
      * to keep whatever this device already had.
      */
     suspend fun importJson(text: String): Boolean {
-        val parsed = parseSettingsExport(text, importAllowList) ?: return false
+        val parsed = parseSettingsExport(text, importAllowList, context.filesDir) ?: return false
 
         context.dataStore.edit { store ->
             store.clear()
