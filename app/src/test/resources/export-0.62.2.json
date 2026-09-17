@@ -1,0 +1,72 @@
+{
+    "format": 1,
+    "app": "Victoria Launcher",
+    "values": {
+        "folders_json": {
+            "type": "string",
+            "value": "[{\"id\":\"f1\",\"name\":\"Media\",\"apps\":[\"com.android.settings\\/com.android.settings.Settings\",\"com.android.chrome\\/com.google.android.apps.chrome.Main\"]},{\"id\":\"f2\",\"name\":\"Tools\",\"apps\":[\"com.google.android.dialer\\/com.google.android.dialer.extensions.GoogleDialtactsActivity\"],\"icon\":\"pack:com.example.iconpack:ic_tools\"}]"
+        },
+        "favorites_order": {
+            "type": "string",
+            "value": "com.google.android.calendar/com.android.calendar.AllInOneActivity\nfolder:f1"
+        },
+        "name_overrides_json": {
+            "type": "string",
+            "value": "{\"com.android.settings\\/com.android.settings.Settings\":\"Config\",\"com.android.chrome\\/com.google.android.apps.chrome.Main\":\"Browser\"}"
+        },
+        "icon_overrides_json": {
+            "type": "string",
+            "value": "{\"com.android.settings\\/com.android.settings.Settings\":\"pack:com.example.iconpack:ic_settings\",\"com.android.chrome\\/com.google.android.apps.chrome.Main\":\"content:\\/\\/media\\/external\\/images\\/media\\/1\"}"
+        },
+        "hidden_apps": {
+            "type": "stringSet",
+            "value": [
+                "com.google.android.dialer/com.google.android.dialer.extensions.GoogleDialtactsActivity"
+            ]
+        },
+        "launch_counts_json": {
+            "type": "string",
+            "value": "{\"com.android.settings\\/com.android.settings.Settings\":\"3\",\"com.android.chrome\\/com.google.android.apps.chrome.Main\":\"1\"}"
+        },
+        "themed_icons": {
+            "type": "boolean",
+            "value": true
+        },
+        "haptics_enabled": {
+            "type": "boolean",
+            "value": false
+        },
+        "allow_rotation": {
+            "type": "boolean",
+            "value": true
+        },
+        "icon_size_dp": {
+            "type": "int",
+            "value": 72
+        },
+        "label_size_sp": {
+            "type": "int",
+            "value": 20
+        },
+        "edge_zone_width_dp": {
+            "type": "int",
+            "value": 64
+        },
+        "dim_wallpaper_alpha": {
+            "type": "float",
+            "value": 0.6000000238418579
+        },
+        "dim_home_alpha": {
+            "type": "float",
+            "value": 0.20000000298023224
+        },
+        "font": {
+            "type": "string",
+            "value": "SERIF"
+        },
+        "text_color_mode": {
+            "type": "string",
+            "value": "CUSTOM"
+        }
+    }
+}

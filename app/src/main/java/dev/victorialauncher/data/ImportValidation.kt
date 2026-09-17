@@ -1,0 +1,212 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+package dev.victorialauncher.data
+
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
+import dev.victorialauncher.ui.common.ICON_PACK_OVERRIDE_PREFIX
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * A settings file comes from the SAF document picker, so it could be anything -- another app's
+ * export, something hand-edited, or something deliberately hostile. Applied twice: once as a
+ * byte count while the SAF stream is still being read (`VictoriaNavHost`), before a single byte
+ * becomes a String, and again here as a backstop for any other caller of [parseSettingsExport].
+ * `readText()` on an unbounded stream had no limit at all.
+ */
+internal const val MAX_IMPORT_FILE_BYTES = 1 * 1024 * 1024
+
+/** A single crafted `stringSet` array or string value shouldn't be able to blow up memory either. */
+private const val MAX_STRING_SET_ELEMENTS = 4096
+private const val MAX_STRING_SET_ELEMENT_LENGTH = 4096
+private const val MAX_STRING_VALUE_LENGTH = MAX_IMPORT_FILE_BYTES
+
+/** The `type` tags [Prefs.exportJson] writes; [Prefs.importJson] must see the same one back. */
+internal enum class ExpectedType(val tag: String) {
+    BOOLEAN("boolean"),
+    INT("int"),
+    LONG("long"),
+    FLOAT("float"),
+    STRING("string"),
+    STRING_SET("stringSet"),
+    ;
+
+    companion object {
+        fun fromTag(tag: String): ExpectedType? = entries.firstOrNull { it.tag == tag }
+    }
+}
+
+/** The values [Prefs.importJson] is about to write, already type-checked and capped. */
+internal class ParsedExport(val values: List<Pair<Preferences.Key<*>, Any>>)
+
+/**
+ * The four string-valued preferences that are themselves a JSON document, and so need a second,
+ * shape-level check beyond "is a string under the length cap".
+ */
+private val JSON_STRING_KEYS = setOf(
+    "folders_json",
+    "name_overrides_json",
+    "icon_overrides_json",
+    "launch_counts_json",
+)
+
+/**
+ * Parses and fully validates a settings export before anything is written.
+ *
+ * Pure: no Android or DataStore-runtime types beyond [Preferences.Key] itself, which -- like
+ * the rest of `androidx.datastore.preferences.core` -- has no Android dependency and behaves
+ * identically under a plain JVM unit test and on-device. [known] is the allow-list of real
+ * preference names and their declared type; [Prefs.importAllowList] is the one built from
+ * [Prefs.Keys] and used in production, kept in sync with it by a reflection-based test rather
+ * than by two hand-written lists agreeing by luck.
+ *
+ * A name that isn't in [known] is dropped, not rejected -- so a file exported by a newer build,
+ * with a setting this one doesn't know about yet, still restores everything it does recognize
+ * instead of refusing the whole file. A name it does know, but whose `type` tag doesn't match
+ * the declared type, or whose value doesn't check out (wrong JSON type, non-finite number,
+ * out-of-range number, over a size cap, or -- for the four JSON-shaped string keys -- not
+ * actually valid JSON of the expected shape) is dropped the same way, one entry at a time,
+ * rather than failing the whole import over a single bad row.
+ *
+ * Returns null when the file isn't recognizable as a Victoria Launcher export at all: too
+ * large, not JSON, missing the envelope's `values` object, or a `format` major this build
+ * doesn't understand.
+ */
+internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>): ParsedExport? {
+    if (text.length > MAX_IMPORT_FILE_BYTES) return null
+    // Some tools still emit one; it is invisible in most editors, and rejecting an otherwise
+    // valid file over it would be a strange way to fail.
+    val cleaned = text.removePrefix("\uFEFF")
+
+    // runCatching also catches a StackOverflowError, which is the realistic failure mode for
+    // adversarial nesting depth (e.g. a file that is nothing but "[[[[[...") -- org.json's
+    // descent is recursive with no depth limit of its own, and the default JVM/ART thread
+    // stack is nowhere near deep enough for the bracket count that fits in a 1 MiB file, so
+    // parsing that shape fails fast with an overflow rather than succeeding slowly.
+    return runCatching {
+        val root = JSONObject(cleaned)
+        if (root.optInt("format") != EXPORT_FORMAT) return@runCatching null
+        val values = root.optJSONObject("values") ?: return@runCatching null
+
+        val result = mutableListOf<Pair<Preferences.Key<*>, Any>>()
+        values.keys().forEach { name ->
+            val expected = known[name] ?: return@forEach
+            val entry = values.optJSONObject(name) ?: return@forEach
+            if (ExpectedType.fromTag(entry.optString("type", "")) != expected) return@forEach
+            var value = readTypedValue(entry, expected) ?: return@forEach
+            if (name in JSON_STRING_KEYS) {
+                value = sanitizeJsonStringValue(name, value as String) ?: return@forEach
+            }
+            result.add(preferenceKey(name, expected) to value)
+        }
+        ParsedExport(result)
+    }.getOrNull()
+}
+
+private fun preferenceKey(name: String, type: ExpectedType): Preferences.Key<*> = when (type) {
+    ExpectedType.BOOLEAN -> booleanPreferencesKey(name)
+    ExpectedType.INT -> intPreferencesKey(name)
+    ExpectedType.LONG -> longPreferencesKey(name)
+    ExpectedType.FLOAT -> floatPreferencesKey(name)
+    ExpectedType.STRING -> stringPreferencesKey(name)
+    ExpectedType.STRING_SET -> stringSetPreferencesKey(name)
+}
+
+/**
+ * Reads `value` under its declared type, rejecting anything that isn't actually that JSON
+ * type -- org.json's own `getInt`/`getDouble`/etc. happily coerce a numeric-looking string into
+ * a number, which is exactly the kind of leniency a hostile file would lean on, so this goes
+ * through [JSONObject.opt] and an explicit Kotlin cast instead.
+ */
+private fun readTypedValue(entry: JSONObject, type: ExpectedType): Any? {
+    if (!entry.has("value")) return null
+    return when (type) {
+        ExpectedType.BOOLEAN -> entry.opt("value") as? Boolean
+        ExpectedType.INT -> (entry.opt("value") as? Number)?.toLong()
+            ?.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
+        ExpectedType.LONG -> (entry.opt("value") as? Number)?.toLong()
+        ExpectedType.FLOAT -> (entry.opt("value") as? Number)?.toDouble()?.toFloat()?.takeIf { it.isFinite() }
+        ExpectedType.STRING -> (entry.opt("value") as? String)?.takeIf { it.length <= MAX_STRING_VALUE_LENGTH }
+        ExpectedType.STRING_SET -> readStringSet(entry.opt("value") as? JSONArray)
+    }
+}
+
+private fun readStringSet(array: JSONArray?): Set<String>? {
+    if (array == null || array.length() > MAX_STRING_SET_ELEMENTS) return null
+    val set = mutableSetOf<String>()
+    for (i in 0 until array.length()) {
+        val element = array.opt(i) as? String ?: return null
+        if (element.length > MAX_STRING_SET_ELEMENT_LENGTH) return null
+        set.add(element)
+    }
+    return set
+}
+
+/**
+ * [Folder.kt]'s and [Prefs.jsonToMap]'s own parsers already fail soft -- an empty list or map,
+ * never a throw -- on a garbage value, so storing one wouldn't crash anything on read. But it
+ * would still silently wipe every real folder or override the moment a corrupted value got
+ * imported, rather than simply not gaining whatever the file intended, so this keeps a
+ * malformed one of these four out of the store in the first place.
+ *
+ * `icon_overrides_json` gets a second pass beyond "is it a JSON object of strings": each value
+ * is filtered down to the two shapes the icon picker itself ever writes. See
+ * [isAllowedIconOverrideValue] for why -- a value in this map reaches
+ * `ContentResolver.openInputStream` directly at render time.
+ */
+private fun sanitizeJsonStringValue(name: String, value: String): String? = when {
+    value.isBlank() -> value
+    name == "folders_json" -> value.takeIf { runCatching { JSONArray(it) }.isSuccess }
+    name == "icon_overrides_json" -> sanitizeIconOverrides(value)
+    else -> value.takeIf { runCatching { JSONObject(it) }.isSuccess }
+}
+
+private fun sanitizeIconOverrides(value: String): String? {
+    val obj = runCatching { JSONObject(value) }.getOrNull() ?: return null
+    val filtered = JSONObject()
+    obj.keys().forEach { key ->
+        val overrideValue = obj.opt(key) as? String ?: return@forEach
+        if (isAllowedIconOverrideValue(overrideValue)) filtered.put(key, overrideValue)
+    }
+    return filtered.toString()
+}
+
+/**
+ * The icon picker only ever writes one of two shapes (`AppIcon.kt`): an icon-pack reference, or
+ * a gallery `content://` URI the app was granted a persistable read permission for at pick
+ * time. An imported override skips that grant entirely -- it's just a string a file handed us
+ * -- so `decodeIconOverride`'s `content://` branch reaching `ContentResolver.openInputStream`
+ * with a URI we hold no permission for is expected and already handled (it throws
+ * `SecurityException`, caught by the `runCatching` around that call, and falls back to the
+ * app/pack icon). The actual risk is `ContentResolver` treating a `file://` URI as a plain
+ * filesystem path with no permission-grant check at all: normal Android file permissions still
+ * apply, so this can only ever reach files this app could already read on its own (its own
+ * private storage; nothing else, since it holds no storage permission), but there is no reason
+ * to accept that shape from an imported file when it was never one the app itself would write.
+ * Restricting to the two documented shapes closes that off, along with `javascript:`, `data:`,
+ * and anything else, without needing to reason about each scheme individually.
+ */
+internal fun isAllowedIconOverrideValue(value: String): Boolean {
+    if (value.startsWith(ICON_PACK_OVERRIDE_PREFIX)) {
+        val body = value.removePrefix(ICON_PACK_OVERRIDE_PREFIX)
+        val split = body.lastIndexOf(':')
+        if (split <= 0) return false
+        return isSafeToken(body.substring(0, split)) && isSafeToken(body.substring(split + 1))
+    }
+    // A content URI legitimately contains '/', so it only gets the control-character check --
+    // the no-separator rule above is specific to the pack: pieces, which are names, not paths.
+    return value.startsWith("content://") && value.none { it.isISOControl() }
+}
+
+/**
+ * This becomes a package/resource name lookup or a URI, never a file path, but a hostile file
+ * has no reason to respect that -- so no path separators, no `..`, and no control characters
+ * (which would include a newline smuggling a second value in).
+ */
+private fun isSafeToken(token: String): Boolean =
+    token.isNotBlank() && "/" !in token && "\\" !in token && ".." !in token && token.none { it.isISOControl() }
