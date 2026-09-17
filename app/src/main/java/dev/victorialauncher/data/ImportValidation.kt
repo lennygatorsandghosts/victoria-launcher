@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import dev.victorialauncher.ui.common.ICON_PACK_OVERRIDE_PREFIX
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /**
  * A settings file comes from the SAF document picker, so it could be anything -- another app's
@@ -45,6 +46,25 @@ internal enum class ExpectedType(val tag: String) {
 internal class ParsedExport(val values: List<Pair<Preferences.Key<*>, Any>>)
 
 /**
+ * The type [Prefs.importAllowList] restores a name under, and -- for INT/FLOAT -- the semantic
+ * range a legitimate value has to sit inside (SEC-M2). The Int/Float *machine* range is already
+ * enforced by [readTypedValue]; [range] catches a value that fits the type but makes no sense as
+ * this specific setting -- a negative side padding, say, which later throws out of
+ * `Modifier.padding`, or an icon size in the thousands, which likely overflows Compose's layout
+ * constraints. Every INT/FLOAT entry in [Prefs.importAllowList] declares one, even where that
+ * only means "the type's own full range" (an ARGB color, say, where the sign bit is just the
+ * alpha byte) -- a reflection-based test in ImportValidationTest fails if a numeric key is added
+ * without one, the same way the allow-list-coverage test already does for a missing key.
+ */
+internal data class KnownPreference(val type: ExpectedType, val range: NumericRange? = null)
+
+/** A closed range for one INT or FLOAT preference; see [KnownPreference.range]. */
+internal sealed class NumericRange {
+    data class OfInt(val min: Int, val max: Int) : NumericRange()
+    data class OfFloat(val min: Float, val max: Float) : NumericRange()
+}
+
+/**
  * The four string-valued preferences that are themselves a JSON document, and so need a second,
  * shape-level check beyond "is a string under the length cap".
  */
@@ -58,28 +78,47 @@ private val JSON_STRING_KEYS = setOf(
 )
 
 /**
+ * A path is never carried inside the export itself, only named by it -- see [sanitizeFontFile].
+ */
+private const val FONT_FILE_KEY_NAME = "font_file"
+
+/**
  * Parses and fully validates a settings export before anything is written.
  *
- * Pure: no Android or DataStore-runtime types beyond [Preferences.Key] itself, which -- like
- * the rest of `androidx.datastore.preferences.core` -- has no Android dependency and behaves
+ * Pure: no Android or DataStore-runtime types beyond [Preferences.Key] and [File] itself --
+ * [File] is never touched as a filesystem object here, only compared as a path, which behaves
  * identically under a plain JVM unit test and on-device. [known] is the allow-list of real
- * preference names and their declared type; [Prefs.importAllowList] is the one built from
+ * preference names, their declared type, and -- for INT/FLOAT -- the range a legitimate value
+ * has to sit inside (see [KnownPreference]); [Prefs.importAllowList] is the one built from
  * [Prefs.Keys] and used in production, kept in sync with it by a reflection-based test rather
- * than by two hand-written lists agreeing by luck.
+ * than by two hand-written lists agreeing by luck. [allowedFontFileDir] is the one directory a
+ * `font_file` value is allowed to resolve inside (see [sanitizeFontFile]); passed in rather than
+ * read from a `Context` so this stays callable from a plain JVM test.
  *
  * A name that isn't in [known] is dropped, not rejected -- so a file exported by a newer build,
  * with a setting this one doesn't know about yet, still restores everything it does recognize
  * instead of refusing the whole file. A name it does know, but whose `type` tag doesn't match
  * the declared type, or whose value doesn't check out (wrong JSON type, non-finite number,
- * out-of-range number, over a size cap, or -- for the four JSON-shaped string keys -- not
- * actually valid JSON of the expected shape) is dropped the same way, one entry at a time,
- * rather than failing the whole import over a single bad row.
+ * out-of-range number, over a size cap, outside its declared [NumericRange], a `font_file`
+ * outside [allowedFontFileDir], or -- for the four JSON-shaped string keys -- not actually valid
+ * JSON of the expected shape) is dropped the same way, one entry at a time, rather than failing
+ * the whole import over a single bad row.
  *
  * Returns null when the file isn't recognizable as a Victoria Launcher export at all: too
- * large, not JSON, missing the envelope's `values` object, or a `format` major this build
- * doesn't understand.
+ * large, not JSON, missing the envelope's `values` object, a `format` major this build doesn't
+ * understand, or -- CR-2 -- a non-empty `values` object none of whose entries survived
+ * validation. That last case is deliberately distinct from a `values` object that was empty to
+ * begin with (a never-configured install's own export, which still imports and clears the store
+ * to defaults, exactly as the pre-hardening parser did: iterating zero keys never threw there
+ * either): one says "restore me to nothing," the other says "here is content, all of which
+ * turned out to be untrustworthy," and only the second is worth refusing outright rather than
+ * silently wiping every existing setting.
  */
-internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>): ParsedExport? {
+internal fun parseSettingsExport(
+    text: String,
+    known: Map<String, KnownPreference>,
+    allowedFontFileDir: File? = null,
+): ParsedExport? {
     if (text.length > MAX_IMPORT_FILE_BYTES) return null
     // Some tools still emit one; it is invisible in most editors, and rejecting an otherwise
     // valid file over it would be a strange way to fail.
@@ -99,8 +138,9 @@ internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>)
         values.keys().forEach { name ->
             val expected = known[name] ?: return@forEach
             val entry = values.optJSONObject(name) ?: return@forEach
-            if (ExpectedType.fromTag(entry.optString("type", "")) != expected) return@forEach
-            var value = readTypedValue(entry, expected) ?: return@forEach
+            if (ExpectedType.fromTag(entry.optString("type", "")) != expected.type) return@forEach
+            var value = readTypedValue(entry, expected.type) ?: return@forEach
+            if (!isInDeclaredRange(value, expected.range)) return@forEach
             if (name in JSON_STRING_KEYS) {
                 value = sanitizeJsonStringValue(name, value as String) ?: return@forEach
             }
@@ -110,10 +150,46 @@ internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>)
             if (name == SEARCH_URL_TEMPLATE_KEY && (value as String).isNotEmpty() &&
                 SearchUrl.validate(value) !is SearchUrl.Validation.Ok
             ) return@forEach
-            result.add(preferenceKey(name, expected) to value)
+            if (name == FONT_FILE_KEY_NAME) {
+                value = sanitizeFontFile(value as String, allowedFontFileDir) ?: return@forEach
+            }
+            result.add(preferenceKey(name, expected.type) to value)
         }
+        // CR-2: see the doc comment above -- a `values` object that had real entries but from
+        // which nothing survived is not the same file as one that was honestly empty.
+        if (values.length() > 0 && result.isEmpty()) return@runCatching null
         ParsedExport(result)
     }.getOrNull()
+}
+
+/** [KnownPreference.range], applied. `null` means the type's machine range is the whole story. */
+private fun isInDeclaredRange(value: Any, range: NumericRange?): Boolean = when (range) {
+    null -> true
+    is NumericRange.OfInt -> value is Int && value in range.min..range.max
+    is NumericRange.OfFloat -> value is Float && value in range.min..range.max
+}
+
+/**
+ * The font picker only ever writes a path under this app's own files directory --
+ * `VictoriaNavHost`'s `onPickFontFile` copies the picked document into `context.filesDir` before
+ * ever calling [Prefs.setFontFile] with the copy's path -- and an export never carries the font
+ * file itself, so a `font_file` naming anywhere else names nothing this device can load, and it
+ * later reaches `Typeface.createFromFile` with no check of its own (CR-11). [allowedDir] is
+ * `null` for a caller that has no directory to check against (a JVM test that isn't exercising
+ * this path); every `font_file` value is dropped in that case, since there is nothing to verify
+ * it against.
+ *
+ * Both sides are canonicalized before the containment check, not compared as raw strings, and
+ * compared as a [java.nio.file.Path] rather than a string prefix -- an un-resolved path would
+ * not catch a `<filesDir>/../elsewhere` that walks back out of the allowed directory with a
+ * literal `..` segment, and a plain `String.startsWith` would wrongly accept a sibling directory
+ * whose name happens to extend the allowed one (`.../files2` "starts with" `.../files`).
+ */
+private fun sanitizeFontFile(path: String, allowedDir: File?): String? {
+    if (allowedDir == null) return null
+    val candidate = runCatching { File(path).canonicalFile.toPath() }.getOrNull() ?: return null
+    val root = runCatching { allowedDir.canonicalFile.toPath() }.getOrNull() ?: return null
+    return path.takeIf { candidate.startsWith(root) }
 }
 
 private fun preferenceKey(name: String, type: ExpectedType): Preferences.Key<*> = when (type) {

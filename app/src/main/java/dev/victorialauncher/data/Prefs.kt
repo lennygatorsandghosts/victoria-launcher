@@ -55,6 +55,13 @@ private val Context.dataStore by preferencesDataStore(name = "victoria_prefs")
  */
 internal const val EXPORT_FORMAT = 1
 
+/** Shorthand for building [Prefs.importAllowList] -- see [KnownPreference]. */
+private fun bool() = KnownPreference(ExpectedType.BOOLEAN)
+private fun string() = KnownPreference(ExpectedType.STRING)
+private fun stringSet() = KnownPreference(ExpectedType.STRING_SET)
+private fun int(min: Int, max: Int) = KnownPreference(ExpectedType.INT, NumericRange.OfInt(min, max))
+private fun float(min: Float, max: Float) = KnownPreference(ExpectedType.FLOAT, NumericRange.OfFloat(min, max))
+
 class Prefs(private val context: Context) {
 
     /**
@@ -131,80 +138,98 @@ class Prefs(private val context: Context) {
 
     companion object {
         /**
-         * The allow-list [importJson] restores against: every real preference name, and the
-         * type it's declared with above. Written out by hand rather than derived from [Keys]
-         * at runtime, because a `Preferences.Key<T>`'s `T` is erased -- there is no way to ask
-         * an existing key instance for its own type tag. Kept honest by
-         * `ImportValidationTest`'s "every declared preference key is covered by the import
-         * allow-list" test, which walks [Keys] via reflection and fails if a name is missing
-         * here, so an added-and-forgotten key shows up as a test failure rather than as a
-         * setting that silently stops restoring.
+         * The allow-list [importJson] restores against: every real preference name, the type
+         * it's declared with above, and -- for INT/FLOAT -- the semantic range a legitimate
+         * value has to sit inside (SEC-M2), sourced from whichever slider or stepper in the UI
+         * actually sets that preference (cited per entry below) so the range isn't guessed.
+         * Written out by hand rather than derived from [Keys] at runtime, because a
+         * `Preferences.Key<T>`'s `T` is erased -- there is no way to ask an existing key
+         * instance for its own type tag. Kept honest by two `ImportValidationTest` checks: one
+         * walks [Keys] via reflection and fails if a name is missing here, and the other fails
+         * if an INT/FLOAT entry has no declared range -- so an added-and-forgotten key, or a
+         * numeric one added without thinking through its range, shows up as a test failure
+         * rather than as a setting that silently stops restoring or a value that crashes
+         * Compose later.
          */
-        internal val importAllowList: Map<String, ExpectedType> = mapOf(
-            Keys.HIDDEN_APPS.name to ExpectedType.STRING_SET,
-            Keys.FAVORITES.name to ExpectedType.STRING,
-            Keys.FOLDERS.name to ExpectedType.STRING,
-            Keys.NAME_OVERRIDES.name to ExpectedType.STRING,
-            Keys.ICON_OVERRIDES.name to ExpectedType.STRING,
-            Keys.ICON_SIZE_DP.name to ExpectedType.INT,
-            Keys.LABEL_SIZE_SP.name to ExpectedType.INT,
-            Keys.ITEM_SPACING_DP.name to ExpectedType.INT,
-            Keys.SIDE_PADDING_DP.name to ExpectedType.INT,
-            Keys.NOW_PLAYING_HEIGHT_DP.name to ExpectedType.INT,
-            Keys.NOW_PLAYING_PAD_TOP.name to ExpectedType.INT,
-            Keys.NOW_PLAYING_PAD_BOTTOM.name to ExpectedType.INT,
-            Keys.WIDGET_PAD_TOP.name to ExpectedType.INT,
-            Keys.WIDGET_PAD_BOTTOM.name to ExpectedType.INT,
-            Keys.FAVORITES_PAD_TOP.name to ExpectedType.INT,
-            Keys.FAVORITES_PAD_BOTTOM.name to ExpectedType.INT,
-            Keys.FONT.name to ExpectedType.STRING,
-            Keys.FONT_FILE.name to ExpectedType.STRING,
-            Keys.TEXT_COLOR_CUSTOM.name to ExpectedType.INT,
-            Keys.DIM_COLOR.name to ExpectedType.INT,
-            Keys.ALLOW_ROTATION.name to ExpectedType.BOOLEAN,
-            Keys.THEMED_ICONS.name to ExpectedType.BOOLEAN,
-            Keys.ICON_SHAPE.name to ExpectedType.STRING,
-            Keys.HIDE_STATUS_BAR.name to ExpectedType.BOOLEAN,
-            Keys.HIDE_STATUS_BAR_APPLIST.name to ExpectedType.BOOLEAN,
-            Keys.DIM_WALLPAPER_ALPHA.name to ExpectedType.FLOAT,
-            Keys.HAPTICS_ENABLED.name to ExpectedType.BOOLEAN,
-            Keys.DIM_HOME_ALPHA.name to ExpectedType.FLOAT,
-            Keys.SHOW_FAVORITE_LABELS.name to ExpectedType.BOOLEAN,
-            Keys.TEXT_COLOR_MODE.name to ExpectedType.STRING,
-            Keys.DOUBLE_TAP_TO_LOCK.name to ExpectedType.BOOLEAN,
-            Keys.EDGE_SIDE.name to ExpectedType.STRING,
-            Keys.ALWAYS_SHOW_AZ.name to ExpectedType.BOOLEAN,
-            Keys.AZ_STRIP_VISIBILITY.name to ExpectedType.STRING,
-            Keys.SHOW_ALPHABET.name to ExpectedType.BOOLEAN,
-            Keys.ALIGN_RIGHT.name to ExpectedType.BOOLEAN,
-            Keys.ICON_PACK_PACKAGE.name to ExpectedType.STRING,
-            Keys.NOW_PLAYING_ENABLED.name to ExpectedType.BOOLEAN,
-            Keys.WIDGET_ID.name to ExpectedType.INT,
-            Keys.WIDGET_POSITION.name to ExpectedType.INT,
-            Keys.WIDGET_HEIGHT_DP.name to ExpectedType.INT,
-            Keys.WIDGET_IDS.name to ExpectedType.STRING,
-            Keys.WIDGET_SIDE_PADDING_DP.name to ExpectedType.INT,
-            Keys.WIDGET_OFFSET_X_DP.name to ExpectedType.INT,
-            Keys.SWIPE_UP_OPENS_LIST.name to ExpectedType.BOOLEAN,
-            Keys.APPLIST_SEARCH_ENABLED.name to ExpectedType.BOOLEAN,
-            Keys.APPLIST_SEARCH_BOTTOM.name to ExpectedType.BOOLEAN,
-            Keys.APPLIST_SEARCH_HIDDEN.name to ExpectedType.BOOLEAN,
-            Keys.SORT_BY_USAGE.name to ExpectedType.BOOLEAN,
-            Keys.LAUNCH_COUNTS.name to ExpectedType.STRING,
-            Keys.EDGE_ZONE_WIDTH_DP.name to ExpectedType.INT,
-            Keys.QUICK_LAUNCH_LEFT.name to ExpectedType.STRING,
-            Keys.QUICK_LAUNCH_RIGHT.name to ExpectedType.STRING,
-            Keys.LAYOUT_DEFAULTS_VERSION.name to ExpectedType.INT,
-            Keys.WELCOME_SEEN.name to ExpectedType.BOOLEAN,
-            Keys.SHOW_APP_ICONS.name to ExpectedType.BOOLEAN,
-            Keys.ALIGNMENT.name to ExpectedType.STRING,
-            Keys.APPLIST_ALIGNMENT.name to ExpectedType.STRING,
-            Keys.ICON_SIDE.name to ExpectedType.STRING,
-            Keys.STATUS_BAR_PEEK_SECONDS.name to ExpectedType.INT,
-            Keys.AZ_BAND_TOP_FRACTION.name to ExpectedType.FLOAT,
-            Keys.AZ_BAND_HEIGHT_FRACTION.name to ExpectedType.FLOAT,
-            Keys.SEARCH_URL_TEMPLATE.name to ExpectedType.STRING,
-            Keys.SEARCH_LABEL.name to ExpectedType.STRING,
+        internal val importAllowList: Map<String, KnownPreference> = mapOf(
+            Keys.HIDDEN_APPS.name to stringSet(),
+            Keys.FAVORITES.name to string(),
+            Keys.FOLDERS.name to string(),
+            Keys.NAME_OVERRIDES.name to string(),
+            Keys.ICON_OVERRIDES.name to string(),
+            Keys.ICON_SIZE_DP.name to int(32, 96), // SettingsScreen icon-size slider
+            Keys.LABEL_SIZE_SP.name to int(10, 28), // SettingsScreen text-size slider
+            Keys.ITEM_SPACING_DP.name to int(0, 40), // SettingsScreen favorite-spacing slider
+            Keys.SIDE_PADDING_DP.name to int(0, 96), // HomeScreen side-padding stepper
+            Keys.NOW_PLAYING_HEIGHT_DP.name to int(48, 220), // HomeScreen now-playing-height stepper
+            Keys.NOW_PLAYING_PAD_TOP.name to int(0, 400), // EditLayoutControls.PADDING_RANGE
+            Keys.NOW_PLAYING_PAD_BOTTOM.name to int(0, 400), // EditLayoutControls.PADDING_RANGE
+            Keys.WIDGET_PAD_TOP.name to int(0, 400), // EditLayoutControls.PADDING_RANGE
+            Keys.WIDGET_PAD_BOTTOM.name to int(0, 400), // EditLayoutControls.PADDING_RANGE
+            Keys.FAVORITES_PAD_TOP.name to int(0, 400), // EditLayoutControls.PADDING_RANGE
+            Keys.FAVORITES_PAD_BOTTOM.name to int(0, 400), // EditLayoutControls.PADDING_RANGE
+            Keys.FONT.name to string(),
+            Keys.FONT_FILE.name to string(),
+            // An ARGB color legitimately spans the whole Int range (the sign bit is just the
+            // alpha byte), so there is no narrower range to enforce beyond the machine range
+            // readTypedValue() already checks -- declared explicitly so it isn't mistaken for a
+            // numeric key nobody thought about.
+            Keys.TEXT_COLOR_CUSTOM.name to int(Int.MIN_VALUE, Int.MAX_VALUE),
+            Keys.DIM_COLOR.name to int(Int.MIN_VALUE, Int.MAX_VALUE),
+            Keys.ALLOW_ROTATION.name to bool(),
+            Keys.THEMED_ICONS.name to bool(),
+            Keys.ICON_SHAPE.name to string(),
+            Keys.HIDE_STATUS_BAR.name to bool(),
+            Keys.HIDE_STATUS_BAR_APPLIST.name to bool(),
+            Keys.DIM_WALLPAPER_ALPHA.name to float(0f, 0.85f), // SettingsScreen dim-applist slider
+            Keys.HAPTICS_ENABLED.name to bool(),
+            Keys.DIM_HOME_ALPHA.name to float(0f, 0.85f), // SettingsScreen dim-home slider
+            Keys.SHOW_FAVORITE_LABELS.name to bool(),
+            Keys.TEXT_COLOR_MODE.name to string(),
+            Keys.DOUBLE_TAP_TO_LOCK.name to bool(),
+            Keys.EDGE_SIDE.name to string(),
+            Keys.ALWAYS_SHOW_AZ.name to bool(),
+            Keys.AZ_STRIP_VISIBILITY.name to string(),
+            Keys.SHOW_ALPHABET.name to bool(),
+            Keys.ALIGN_RIGHT.name to bool(),
+            Keys.ICON_PACK_PACKAGE.name to string(),
+            Keys.NOW_PLAYING_ENABLED.name to bool(),
+            // AppWidgetManager assigns the real IDs; -1 is its own INVALID_APPWIDGET_ID
+            // sentinel for "no widget". No UI control writes this directly, so the bound is
+            // generous on purpose rather than guessed tight.
+            Keys.WIDGET_ID.name to int(-1, Int.MAX_VALUE),
+            // Index into the merged home list; HomeScreen.kt already coerces it to the
+            // favorites count at read time (`widgetPosition.coerceIn(0, favorites.size)`), so
+            // this is a sanity cap against nonsense in the file itself, not the real bound.
+            Keys.WIDGET_POSITION.name to int(0, 100_000),
+            Keys.WIDGET_HEIGHT_DP.name to int(80, 900), // HomeScreen widget-height stepper
+            Keys.WIDGET_IDS.name to string(),
+            Keys.WIDGET_SIDE_PADDING_DP.name to int(0, 96), // HomeScreen widget-side-padding stepper
+            Keys.WIDGET_OFFSET_X_DP.name to int(-200, 200), // HomeScreen widget-offset stepper; matches the coerceIn already in widgetOffsetXDp/setWidgetOffsetXDp below
+            Keys.SWIPE_UP_OPENS_LIST.name to bool(),
+            Keys.APPLIST_SEARCH_ENABLED.name to bool(),
+            Keys.APPLIST_SEARCH_BOTTOM.name to bool(),
+            Keys.APPLIST_SEARCH_HIDDEN.name to bool(),
+            Keys.SORT_BY_USAGE.name to bool(),
+            Keys.LAUNCH_COUNTS.name to string(),
+            Keys.EDGE_ZONE_WIDTH_DP.name to int(32, 96), // SettingsScreen edge-zone-width slider
+            Keys.QUICK_LAUNCH_LEFT.name to string(),
+            Keys.QUICK_LAUNCH_RIGHT.name to string(),
+            // 0 = installed before this scheme, 1 = a genuine first run -- see ensureInstallMarker().
+            Keys.LAYOUT_DEFAULTS_VERSION.name to int(0, 1),
+            Keys.WELCOME_SEEN.name to bool(),
+            Keys.SHOW_APP_ICONS.name to bool(),
+            Keys.ALIGNMENT.name to string(),
+            Keys.APPLIST_ALIGNMENT.name to string(),
+            Keys.ICON_SIDE.name to string(),
+            Keys.STATUS_BAR_PEEK_SECONDS.name to int(1, 30), // SettingsScreen status-bar-timeout slider
+            // BandEditOverlay clamps topPx to [0, viewportPx] and heightPx to
+            // [minHeightPx, viewportPx] (BandEditOverlay.kt), so both fractions of the
+            // viewport land in 0f..1f.
+            Keys.AZ_BAND_TOP_FRACTION.name to float(0f, 1f),
+            Keys.AZ_BAND_HEIGHT_FRACTION.name to float(0f, 1f),
+            Keys.SEARCH_URL_TEMPLATE.name to string(),
+            Keys.SEARCH_LABEL.name to string(),
         )
     }
 
@@ -265,7 +290,9 @@ class Prefs(private val context: Context) {
      * restoring. Pulling that out into a top-level pure function is what makes it possible to
      * unit-test the hostile-input handling (oversize files, wrong types, malformed embedded
      * JSON, deliberately nested garbage) under a plain JVM test, with no DataStore or Context
-     * needed, against `org.json` the same way the rest of this file already does.
+     * needed, against `org.json` the same way the rest of this file already does. `context.filesDir`
+     * is the one piece [parseSettingsExport] cannot get for itself, needed only to check a
+     * `font_file` value resolves inside it (CR-11).
      *
      * A name in the file that isn't a preference this build declares is dropped rather than
      * failing the import -- see [Keys]/[importAllowList] -- and every key absent from the file
@@ -274,7 +301,7 @@ class Prefs(private val context: Context) {
      * to keep whatever this device already had.
      */
     suspend fun importJson(text: String): Boolean {
-        val parsed = parseSettingsExport(text, importAllowList) ?: return false
+        val parsed = parseSettingsExport(text, importAllowList, context.filesDir) ?: return false
 
         context.dataStore.edit { store ->
             store.clear()
@@ -326,15 +353,23 @@ class Prefs(private val context: Context) {
     val iconOverrides: Flow<Map<String, String>> =
         data.map { pref -> jsonToMap(pref[Keys.ICON_OVERRIDES]) }.distinctUntilChanged()
 
-    val iconSizeDp: Flow<Int> = data.map { it[Keys.ICON_SIZE_DP] ?: 56 }.distinctUntilChanged()
+    // icon_size_dp / label_size_sp / side_padding_dp are clamped here the same way
+    // widgetOffsetXDp already was, below -- a value stored on the device before this range was
+    // enforced at import (SEC-M2) would otherwise reach Compose unchecked: a huge icon size can
+    // overflow a layout constraint, and side padding reaches `Modifier.padding` directly in
+    // several places in HomeScreen.kt, which throws on a negative value. The bounds match the
+    // ones `Prefs.importAllowList` enforces on the way in.
 
-    val labelSizeSp: Flow<Int> = data.map { it[Keys.LABEL_SIZE_SP] ?: 16 }.distinctUntilChanged()
+    val iconSizeDp: Flow<Int> = data.map { (it[Keys.ICON_SIZE_DP] ?: 56).coerceIn(32, 96) }.distinctUntilChanged()
+
+    val labelSizeSp: Flow<Int> = data.map { (it[Keys.LABEL_SIZE_SP] ?: 16).coerceIn(10, 28) }.distinctUntilChanged()
 
     /** Vertical gap between favorite rows. */
     val itemSpacingDp: Flow<Int> = data.map { it[Keys.ITEM_SPACING_DP] ?: 10 }.distinctUntilChanged()
 
     /** Left/right inset applied to every element on the home screen, so they stay in line. */
-    val sidePaddingDp: Flow<Int> = data.map { it[Keys.SIDE_PADDING_DP] ?: 20 }.distinctUntilChanged()
+    val sidePaddingDp: Flow<Int> =
+        data.map { (it[Keys.SIDE_PADDING_DP] ?: 20).coerceIn(0, 96) }.distinctUntilChanged()
 
     val nowPlayingHeightDp: Flow<Int> = data.map { it[Keys.NOW_PLAYING_HEIGHT_DP] ?: 64 }.distinctUntilChanged()
 
@@ -460,9 +495,13 @@ class Prefs(private val context: Context) {
     /**
      * The widget's own left/right inset. Absent means it has never been set apart, so it
      * follows the favorites and nothing moves the first time this key appears.
+     *
+     * Clamped the same way [sidePaddingDp] is (SEC-M2): HomeScreen.kt reaches
+     * `Modifier.padding(horizontal = widgetSidePaddingDp.dp)` directly, which throws on negative.
      */
     val widgetSidePaddingDp: Flow<Int> =
-        data.map { it[Keys.WIDGET_SIDE_PADDING_DP] ?: it[Keys.SIDE_PADDING_DP] ?: 20 }.distinctUntilChanged()
+        data.map { (it[Keys.WIDGET_SIDE_PADDING_DP] ?: it[Keys.SIDE_PADDING_DP] ?: 20).coerceIn(0, 96) }
+            .distinctUntilChanged()
 
     /**
      * How far the widget is shifted sideways, negative left and positive right.

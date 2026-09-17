@@ -11,6 +11,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class ImportValidationTest {
 
@@ -120,22 +122,36 @@ class ImportValidationTest {
         assertEquals("MONOSPACE", parsed.value("font"))
     }
 
+    // Every one of these gives the bad entry a good companion ("font"): since CR-2, a file
+    // whose ENTIRE `values` object fails to produce anything is refused outright rather than
+    // silently clearing the store (see the "CR-2" tests below), so a single-entry file that is
+    // nothing but the bad row under test would return null here, not an empty list -- that
+    // would test envelope-level refusal instead of the entry-level drop these are about.
+
     @Test
     fun `a type tag that disagrees with the key's declared type is dropped`() {
         // "font" is declared string; claiming it's an int here must not sneak an int into a
         // string preference.
-        val text = envelopeOf("font" to """{"type":"int","value":1}""")
+        val text = envelopeOf(
+            "font" to """{"type":"int","value":1}""",
+            "label_size_sp" to """{"type":"int","value":16}""",
+        )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertTrue(parsed.values.isEmpty())
+        assertEquals(1, parsed.values.size)
+        assertEquals(16, parsed.value("label_size_sp"))
     }
 
     @Test
     fun `a value whose JSON type doesn't match its declared type is dropped even if the tag is right`() {
         // The tag says int, but the JSON value itself is a string -- org.json's own getInt
         // would happily coerce "5", which is exactly the leniency this guards against.
-        val text = envelopeOf("icon_size_dp" to """{"type":"int","value":"5"}""")
+        val text = envelopeOf(
+            "icon_size_dp" to """{"type":"int","value":"5"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertTrue(parsed.values.isEmpty())
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     @Test
@@ -143,31 +159,47 @@ class ImportValidationTest {
         // 1e400 is a syntactically ordinary JSON number; it just doesn't fit in a Double,
         // and IEEE 754 rounds an out-of-range double to Infinity -- no literal "Infinity"
         // token needed to reach a non-finite float.
-        val text = envelopeOf("dim_wallpaper_alpha" to """{"type":"float","value":1e400}""")
+        val text = envelopeOf(
+            "dim_wallpaper_alpha" to """{"type":"float","value":1e400}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertTrue(parsed.values.isEmpty())
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     @Test
     fun `a quoted NaN string is dropped rather than coerced into a float`() {
-        val text = envelopeOf("dim_wallpaper_alpha" to """{"type":"float","value":"NaN"}""")
+        val text = envelopeOf(
+            "dim_wallpaper_alpha" to """{"type":"float","value":"NaN"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertTrue(parsed.values.isEmpty())
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     @Test
     fun `an int value outside Int range is dropped rather than silently truncated`() {
-        val text = envelopeOf("icon_size_dp" to """{"type":"int","value":99999999999}""")
+        val text = envelopeOf(
+            "icon_size_dp" to """{"type":"int","value":99999999999}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertTrue(parsed.values.isEmpty())
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     @Test
     fun `a stringSet over the element cap is dropped`() {
         val hugeArray = JSONArray().apply { repeat(5_000) { put("com.example.app$it/Main") } }
-        val text = envelopeOf("hidden_apps" to """{"type":"stringSet","value":$hugeArray}""")
+        val text = envelopeOf(
+            "hidden_apps" to """{"type":"stringSet","value":$hugeArray}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertTrue(parsed.values.isEmpty())
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     @Test
@@ -179,16 +211,24 @@ class ImportValidationTest {
 
     @Test
     fun `malformed embedded JSON in folders_json is skipped rather than stored as garbage`() {
-        val text = envelopeOf("folders_json" to """{"type":"string","value":"{not an array"}""")
+        val text = envelopeOf(
+            "folders_json" to """{"type":"string","value":"{not an array"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertTrue(parsed.values.isEmpty())
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     @Test
     fun `malformed embedded JSON in name_overrides_json is skipped rather than stored as garbage`() {
-        val text = envelopeOf("name_overrides_json" to """{"type":"string","value":"not json at all"}""")
+        val text = envelopeOf(
+            "name_overrides_json" to """{"type":"string","value":"not json at all"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertTrue(parsed.values.isEmpty())
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     @Test
@@ -196,6 +236,148 @@ class ImportValidationTest {
         val text = envelopeOf("folders_json" to """{"type":"string","value":""}""")
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
         assertEquals("", parsed.value("folders_json"))
+    }
+
+    // --- CR-2: a file with real content none of which survives must not silently wipe the store ---
+
+    @Test
+    fun `a file whose every entry is an unknown name is refused rather than clearing the store`() {
+        val text = envelopeOf(
+            "some_future_setting_this_build_has_never_heard_of" to """{"type":"string","value":"x"}""",
+            "another_one_it_has_never_heard_of" to """{"type":"int","value":1}""",
+        )
+        assertNull(parseSettingsExport(text, Prefs.importAllowList))
+    }
+
+    @Test
+    fun `a file whose every entry has a type mismatch is refused rather than clearing the store`() {
+        val text = envelopeOf(
+            "font" to """{"type":"int","value":1}""",
+            "icon_size_dp" to """{"type":"string","value":"nope"}""",
+        )
+        assertNull(parseSettingsExport(text, Prefs.importAllowList))
+    }
+
+    @Test
+    fun `one good entry among otherwise-worthless ones still imports`() {
+        val text = envelopeOf(
+            "font" to """{"type":"string","value":"MONOSPACE"}""",
+            "icon_size_dp" to """{"type":"string","value":"nope"}""",
+            "an_unknown_setting" to """{"type":"string","value":"x"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("MONOSPACE", parsed.value("font"))
+    }
+
+    @Test
+    fun `a genuinely empty values object still imports, clearing the store to defaults`() {
+        // Matches the pre-hardening parser (4f5c98f~1): `values.keys()` on an empty object
+        // never iterates, so it never threw either -- a never-configured install's own export
+        // is legitimately empty, and restoring it should still mean "back to defaults."
+        val text = """{"format":1,"app":"Victoria Launcher","values":{}}"""
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)
+        assertNotNull(parsed)
+        assertTrue(parsed!!.values.isEmpty())
+    }
+
+    // --- SEC-M2: a value that fits its machine type can still be nonsense as this setting ---
+
+    @Test
+    fun `a negative side padding is dropped rather than crashing Compose later`() {
+        val text = envelopeOf(
+            "side_padding_dp" to """{"type":"int","value":-1}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
+    }
+
+    @Test
+    fun `an absurdly large icon size is dropped`() {
+        val text = envelopeOf(
+            "icon_size_dp" to """{"type":"int","value":100000}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
+    }
+
+    @Test
+    fun `values at the edge of a declared numeric range are accepted`() {
+        // Ints, not a float, so the boundary check itself doesn't ride on double-to-float
+        // rounding of a decimal literal -- the range check is exercised the same way either
+        // type, and this way the assertion is exact.
+        val text = envelopeOf(
+            "icon_size_dp" to """{"type":"int","value":32}""",
+            "label_size_sp" to """{"type":"int","value":28}""",
+            "status_bar_peek_seconds" to """{"type":"int","value":30}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(32, parsed.value("icon_size_dp"))
+        assertEquals(28, parsed.value("label_size_sp"))
+        assertEquals(30, parsed.value("status_bar_peek_seconds"))
+    }
+
+    @Test
+    fun `every INT or FLOAT preference in the allow-list declares a numeric range`() {
+        val numericWithoutRange = Prefs.importAllowList.filterValues {
+            (it.type == ExpectedType.INT || it.type == ExpectedType.FLOAT) && it.range == null
+        }
+        assertTrue(
+            "these numeric keys have no declared range: ${numericWithoutRange.keys}",
+            numericWithoutRange.isEmpty(),
+        )
+    }
+
+    // --- CR-11: font_file must resolve inside the app's own files directory ---
+
+    @Test
+    fun `a font_file inside the allowed directory imports`() {
+        val filesDir = Files.createTempDirectory("filesDir").toFile()
+        val fontPath = File(filesDir, "custom_font").path
+        val text = envelopeOf("font_file" to """{"type":"string","value":"$fontPath"}""")
+        val parsed = parseSettingsExport(text, Prefs.importAllowList, filesDir)!!
+        assertEquals(fontPath, parsed.value("font_file"))
+    }
+
+    @Test
+    fun `a font_file outside the allowed directory is dropped`() {
+        val filesDir = Files.createTempDirectory("filesDir").toFile()
+        val elsewhere = Files.createTempDirectory("elsewhere").toFile()
+        val text = envelopeOf(
+            "font_file" to """{"type":"string","value":"${File(elsewhere, "x.ttf").path}"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList, filesDir)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
+    }
+
+    @Test
+    fun `a font_file that traverses out of the allowed directory with dot-dot is dropped`() {
+        val filesDir = Files.createTempDirectory("filesDir").toFile()
+        val traversal = File(filesDir, "../${filesDir.name}-sibling/x.ttf").path
+        val text = envelopeOf(
+            "font_file" to """{"type":"string","value":"$traversal"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList, filesDir)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
+    }
+
+    @Test
+    fun `a font_file is dropped when no allowed directory was given at all`() {
+        val text = envelopeOf(
+            "font_file" to """{"type":"string","value":"/data/data/dev.victorialauncher/files/custom_font"}""",
+            "font" to """{"type":"string","value":"SERIF"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(1, parsed.values.size)
+        assertEquals("SERIF", parsed.value("font"))
     }
 
     // --- icon override value shapes: AppIcon.decodeIconOverride only ever expects two of these ---

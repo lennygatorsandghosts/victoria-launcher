@@ -72,9 +72,14 @@ import dev.victorialauncher.widget.WidgetSlotActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+
+/** How long the import launcher waits on a SAF read before giving up on it (SEC-L8). */
+private const val IMPORT_READ_TIMEOUT_MS = 10_000L
 
 /**
  * Reads at most [maxBytes] from [stream], decoded as UTF-8, or null if there turns out to be
@@ -84,8 +89,15 @@ import java.io.InputStream
  * starts. This is the only place that needs to be bounded like this: the parser it feeds,
  * [dev.victorialauncher.data.parseSettingsExport], checks the same cap again on the resulting
  * String as a backstop for any other caller.
+ *
+ * The byte cap only ever fires once enough bytes have actually arrived (SEC-L8) -- a SAF
+ * provider that neither writes to the pipe nor closes it leaves [InputStream.read] blocked with
+ * nothing to time out on its own, which is why the caller below wraps this in
+ * `runInterruptible` rather than relying on a plain `withTimeoutOrNull` (a suspend-level
+ * cancellation cannot interrupt a call already blocked inside the JVM). Not `private`: a JVM
+ * test exercises this directly against a stream that never yields a byte.
  */
-private fun readBoundedUtf8(stream: InputStream, maxBytes: Int): String? {
+internal fun readBoundedUtf8(stream: InputStream, maxBytes: Int): String? {
     val buffer = ByteArrayOutputStream()
     val chunk = ByteArray(8 * 1024)
     var total = 0
@@ -324,7 +336,16 @@ fun VictoriaNavHost(
         scope.launch {
             val text = withContext(Dispatchers.IO) {
                 runCatching {
-                    context.contentResolver.openInputStream(uri)?.use { readBoundedUtf8(it, MAX_IMPORT_FILE_BYTES) }
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        // SEC-L8: a provider that never writes or closes would otherwise block
+                        // this read forever. runInterruptible gives the timeout a real thread
+                        // interrupt to cancel with; `use`'s own finally block still closes the
+                        // stream once this returns, which backs that up for a provider whose
+                        // read() ignores the interrupt (closing it tends to unblock the read).
+                        withTimeoutOrNull(IMPORT_READ_TIMEOUT_MS) {
+                            runInterruptible(Dispatchers.IO) { readBoundedUtf8(stream, MAX_IMPORT_FILE_BYTES) }
+                        }
+                    }
                 }.getOrNull()
             }
             val ok = text != null && app.prefs.importJson(text)

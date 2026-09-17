@@ -1231,8 +1231,19 @@ private fun FolderRow(
                             // Members sit one indent inside their folder, on whichever side
                             // the folder's own name is on.
                             .padding(
-                                start = if (alignment == HomeAlignment.RIGHT) sidePaddingDp.dp else (sidePaddingDp + 24).dp,
-                                end = if (alignment == HomeAlignment.RIGHT) (sidePaddingDp + 24).dp else sidePaddingDp.dp,
+                                // Matches the sibling `(sidePaddingDp - 8).coerceAtLeast(0)`
+                                // guards elsewhere in this file: Modifier.padding throws on a
+                                // negative value, and sidePaddingDp is user-editable (SEC-M2).
+                                start = if (alignment == HomeAlignment.RIGHT) {
+                                    sidePaddingDp.coerceAtLeast(0).dp
+                                } else {
+                                    (sidePaddingDp + 24).coerceAtLeast(0).dp
+                                },
+                                end = if (alignment == HomeAlignment.RIGHT) {
+                                    (sidePaddingDp + 24).coerceAtLeast(0).dp
+                                } else {
+                                    sidePaddingDp.coerceAtLeast(0).dp
+                                },
                             )
                             .recordTouchPosition(memberTouch)
                             // A long press used to throw the app straight out of the folder,
@@ -1318,7 +1329,12 @@ private fun FolderRow(
                         stringResource(R.string.home_folder_empty),
                         color = contentColor.copy(alpha = 0.6f),
                         fontSize = (labelSizeSp - 3).coerceAtLeast(10).sp,
-                        modifier = Modifier.padding(start = (sidePaddingDp + 24).dp, top = 4.dp, bottom = 4.dp),
+                        // SEC-M2: Modifier.padding throws on a negative value.
+                        modifier = Modifier.padding(
+                            start = (sidePaddingDp + 24).coerceAtLeast(0).dp,
+                            top = 4.dp,
+                            bottom = 4.dp,
+                        ),
                     )
                 }
             }
@@ -1364,7 +1380,8 @@ private fun NowPlayingBlock(
             alignment = alignment,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = sidePaddingDp.dp)
+                // SEC-M2: Modifier.padding throws on a negative value.
+                .padding(horizontal = sidePaddingDp.coerceAtLeast(0).dp)
                 .recordTouchPosition(touchPosition)
                 .combinedClickable(
                     // The transport buttons consume their own taps, so this is only ever the
