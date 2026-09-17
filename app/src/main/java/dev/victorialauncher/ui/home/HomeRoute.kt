@@ -769,6 +769,11 @@ fun HomeRoute(
                         } catch (e: SecurityException) {
                             Toast.makeText(context, R.string.toast_search_failed, Toast.LENGTH_SHORT).show()
                         }
+                    } else {
+                        // The template can go from valid to cleared/invalid while the dialog is
+                        // up (edited in Settings on another window, an import landing); the
+                        // dialog itself always closes on submit, so say why nothing opened.
+                        Toast.makeText(context, R.string.toast_search_unavailable, Toast.LENGTH_SHORT).show()
                     }
                 },
                 onDismiss = { searchEntry = null },
