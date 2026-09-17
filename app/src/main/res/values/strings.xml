@@ -58,6 +58,7 @@
     <string name="applist_band_bottom">Bottom of the A-Z strip</string>
 
     <string name="applist_search">Search apps</string>
+    <string name="applist_recently_installed">Recently installed</string>
 
     <!-- Toasts -->
     <string name="toast_enable_accessibility_shade">Enable Vicky+ in Settings → Accessibility to open notifications</string>

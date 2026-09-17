@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -243,21 +244,34 @@ fun AppListScreen(
     val scrubY = remember(scrub) { scrub::currentY }
     val pullPx = remember(scrub) { scrub::currentPull }
 
+    var searchHasFocus by remember { mutableStateOf(false) }
     // Searching is a different mode from scrubbing: the letters shrink to whatever matched,
     // so the strip is hidden and placement stays out of it until the query is cleared.
     val searching = searchEnabled && query.isNotBlank()
-    val displayModel = remember(model, searchModel, query, searchEnabled) {
-        if (!searching) {
-            model
-        } else {
-            val term = query.trim()
-            searchModel.filtered { app ->
-                displayName(app).contains(term, ignoreCase = true) ||
-                    // An app names itself in the language of the device, so on a Japanese
-                    // phone Settings calls itself 設定 and no amount of typing "settings"
-                    // reaches it. Package names are ASCII almost without exception, so the
-                    // English word is usually sitting right there in com.android.settings.
-                    app.componentName.packageName.contains(term, ignoreCase = true)
+    val showingRecent = searchEnabled && searchHasFocus && query.isBlank()
+    val searchRowsMode = searching || showingRecent
+    val recentCaption = stringResource(R.string.applist_recently_installed)
+    val displayModel = remember(model, searchModel, query, searchEnabled, showingRecent, hiddenApps, recentCaption) {
+        when {
+            showingRecent -> AppListModel(
+                rows = listOf(AppListRow.Header(recentCaption, indexChar = null)) +
+                    recentlyInstalled(
+                        rows = searchModel.rows.mapNotNull { (it as? AppListRow.Entry)?.app },
+                        hidden = hiddenApps,
+                    ).map { AppListRow.Entry(it) },
+                letterIndex = emptyList(),
+            )
+            !searching -> model
+            else -> {
+                val term = query.trim()
+                searchModel.filtered { app ->
+                    displayName(app).contains(term, ignoreCase = true) ||
+                        // An app names itself in the language of the device, so on a Japanese
+                        // phone Settings calls itself 設定 and no amount of typing "settings"
+                        // reaches it. Package names are ASCII almost without exception, so the
+                        // English word is usually sitting right there in com.android.settings.
+                        app.componentName.packageName.contains(term, ignoreCase = true)
+                }
             }
         }
     }
@@ -278,8 +292,8 @@ fun AppListScreen(
     // Each query is a fresh list, so it starts at the top. Without this the offset from
     // whatever was scrolled before carries over, and a query with few matches lands the
     // results somewhere past the end of the screen.
-    LaunchedEffect(query) {
-        if (query.isNotBlank()) listState.scrollToItem(0)
+    LaunchedEffect(query, showingRecent) {
+        if (query.isNotBlank() || showingRecent) listState.scrollToItem(0)
     }
 
     // Rows outside the scrubbed letter fade out; the section itself never moves, because it
@@ -785,6 +799,7 @@ fun AppListScreen(
                 activeSide = activeSide,
                 showAlphabet = showAlphabet,
                 focusRequester = searchFocus,
+                onFocusChange = { searchHasFocus = it },
                 modifier = Modifier.onSizeChanged { searchHeightPx = it.height },
             )
         }
@@ -834,7 +849,7 @@ fun AppListScreen(
             // own content allows.
             contentPadding = with(density) {
                 val top = when {
-                    searching -> SEARCH_EDGE_PADDING
+                    searchRowsMode -> SEARCH_EDGE_PADDING
                     scrubLetter != null || !highlightRange.isEmpty() -> sectionTopPx.toDp()
                     else -> restingTopPadding
                 }
@@ -846,7 +861,7 @@ fun AppListScreen(
                     start = if (showAlphabet && activeSide == EdgeSide.LEFT) STRIP_INSET else 0.dp,
                     end = if (showAlphabet && activeSide == EdgeSide.RIGHT) STRIP_INSET else 0.dp,
                     top = top,
-                    bottom = if (searching) SEARCH_EDGE_PADDING else restingBottomPadding,
+                    bottom = if (searchRowsMode) SEARCH_EDGE_PADDING else restingBottomPadding,
                 )
             },
         ) {
@@ -947,12 +962,13 @@ fun AppListScreen(
                 activeSide = activeSide,
                 showAlphabet = showAlphabet,
                 focusRequester = searchFocus,
+                onFocusChange = { searchHasFocus = it },
                 atBottom = true,
             )
         }
         }
 
-        if (showAlphabet && !searching) {
+        if (showAlphabet && !searchRowsMode) {
             EdgeScrubber(
                 letters = displayModel.letters,
                 scrubY = scrubY,
@@ -1217,6 +1233,7 @@ private fun SearchField(
     activeSide: EdgeSide,
     showAlphabet: Boolean,
     focusRequester: FocusRequester,
+    onFocusChange: (Boolean) -> Unit,
     atBottom: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -1256,6 +1273,7 @@ private fun SearchField(
         ),
         modifier = modifier
             .focusRequester(focusRequester)
+            .onFocusChanged { onFocusChange(it.isFocused) }
             // The overlay draws under both system bars, so without this the field sits behind
             // the clock at the top, or the gesture pill at the bottom.
             .then(

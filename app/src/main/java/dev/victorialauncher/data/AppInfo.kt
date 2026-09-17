@@ -45,6 +45,8 @@ data class AppInfo(
     val kind: EntryKind = EntryKind.APP,
     /** The publisher's id for a pinned shortcut. Null for every other kind. */
     val shortcutId: String? = null,
+    /** Main-profile install time used for local suggestions. Other profiles deliberately stay 0. */
+    val firstInstallTime: Long = 0L,
     /** A shortcut its publisher has switched off: still listed, shown dimmed, never started. */
     val disabled: Boolean = false,
 ) {

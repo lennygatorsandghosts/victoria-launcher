@@ -91,6 +91,7 @@ class AppRepository(
     ): List<AppInfo> {
         val profiles = runCatching { userManager.userProfiles }.getOrNull().orEmpty()
         val mainUser = Process.myUserHandle()
+        val mainInstallTimes = mutableMapOf<String, Long>()
         val apps = profiles
             .flatMap { user ->
                 val serial = listableSerial(user, mainUser) ?: return@flatMap emptyList()
@@ -100,11 +101,23 @@ class AppRepository(
                     .getOrNull()
                     .orEmpty()
                     .map { info ->
+                        val firstInstallTime = if (user == mainUser) {
+                            mainInstallTimes.getOrPut(info.componentName.packageName) {
+                                try {
+                                    pm.getPackageInfo(info.componentName.packageName, 0).firstInstallTime
+                                } catch (e: PackageManager.NameNotFoundException) {
+                                    0L
+                                }
+                            }
+                        } else {
+                            0L
+                        }
                         AppInfo(
                             componentName = info.componentName,
                             label = info.label?.toString() ?: info.componentName.packageName,
                             user = user,
                             userSerial = serial,
+                            firstInstallTime = firstInstallTime,
                         )
                     }
             }
