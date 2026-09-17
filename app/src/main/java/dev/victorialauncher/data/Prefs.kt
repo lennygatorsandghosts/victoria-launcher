@@ -138,10 +138,10 @@ class Prefs(private val context: Context) {
 
     companion object {
         /**
-         * The allow-list [importJson] restores against: every real preference name, the type
+         * The allow-list an import restores against: every real preference name, the type
          * it's declared with above, and -- for INT/FLOAT -- the semantic range a legitimate
-         * value has to sit inside (SEC-M2), sourced from whichever slider or stepper in the UI
-         * actually sets that preference (cited per entry below) so the range isn't guessed.
+         * value has to sit inside, sourced from whichever slider or stepper in the UI actually
+         * sets that preference (cited per entry below) so the range isn't guessed.
          * Written out by hand rather than derived from [Keys] at runtime, because a
          * `Preferences.Key<T>`'s `T` is erased -- there is no way to ask an existing key
          * instance for its own type tag. Kept honest by two `ImportValidationTest` checks: one
@@ -281,28 +281,33 @@ class Prefs(private val context: Context) {
     }
 
     /**
-     * Replaces every setting with the ones in [text]. Returns false if it is not recognizable
-     * as ours, or if nothing in it could be trusted enough to write.
+     * Validates [text] without writing anything. Returns null if the file isn't recognizable
+     * as ours, or if nothing in it could be trusted enough to write -- see
+     * [parseSettingsExport] for exactly which. Every validation step lives in that top-level
+     * pure function rather than here, which is what makes it possible to unit-test the
+     * hostile-input handling (oversize files, wrong types, malformed embedded JSON,
+     * deliberately nested garbage) under a plain JVM test, with no DataStore or Context needed,
+     * against `org.json` the same way the rest of this file already does. `context.filesDir` is
+     * the one piece [parseSettingsExport] cannot get for itself, needed only to check a
+     * `font_file` value resolves inside it.
      *
-     * Parsing and every validation step happen in [parseSettingsExport] -- entirely before
-     * this touches the store, for the same reason as before: a half-read file that had already
-     * cleared the store would leave someone with neither their old set-up nor the one they were
-     * restoring. Pulling that out into a top-level pure function is what makes it possible to
-     * unit-test the hostile-input handling (oversize files, wrong types, malformed embedded
-     * JSON, deliberately nested garbage) under a plain JVM test, with no DataStore or Context
-     * needed, against `org.json` the same way the rest of this file already does. `context.filesDir`
-     * is the one piece [parseSettingsExport] cannot get for itself, needed only to check a
-     * `font_file` value resolves inside it (CR-11).
-     *
-     * A name in the file that isn't a preference this build declares is dropped rather than
-     * failing the import -- see [Keys]/[importAllowList] -- and every key absent from the file
-     * entirely is still cleared by `store.clear()` below, unchanged from before: an import is a
-     * restore, not a merge, and a file that omits a setting is choosing its default, not asking
-     * to keep whatever this device already had.
+     * Split out from the write so the UI can show the user how many settings a file would
+     * restore, and let them cancel, before anything is touched -- see [applyImport].
      */
-    suspend fun importJson(text: String): Boolean {
-        val parsed = parseSettingsExport(text, importAllowList, context.filesDir) ?: return false
+    internal fun parseImport(text: String): ParsedExport? = parseSettingsExport(text, importAllowList, context.filesDir)
 
+    /**
+     * Replaces every setting with an already-[parseImport]ed export, in one DataStore
+     * transaction: a half-written import would otherwise leave someone with neither their old
+     * set-up nor the one they were restoring.
+     *
+     * A name in the original file that isn't a preference this build declares was already
+     * dropped by [parseSettingsExport] rather than failing the import -- see
+     * [Keys]/[importAllowList] -- and every key absent from the file entirely is still cleared
+     * by `store.clear()` below: an import is a restore, not a merge, and a file that omits a
+     * setting is choosing its default, not asking to keep whatever this device already had.
+     */
+    internal suspend fun applyImport(parsed: ParsedExport) {
         context.dataStore.edit { store ->
             store.clear()
             parsed.values.forEach { (key, value) ->
@@ -310,6 +315,17 @@ class Prefs(private val context: Context) {
                 store[key as Preferences.Key<Any>] = value
             }
         }
+    }
+
+    /**
+     * Parses and applies [text] in one step, with no chance for the caller to confirm the
+     * restore count with the user first. Kept for callers -- tests, mainly -- that want the
+     * old all-at-once behavior; the SAF import flow in `VictoriaNavHost` uses [parseImport] and
+     * [applyImport] separately so it can show a confirmation dialog in between.
+     */
+    suspend fun importJson(text: String): Boolean {
+        val parsed = parseImport(text) ?: return false
+        applyImport(parsed)
         return true
     }
 
@@ -355,7 +371,7 @@ class Prefs(private val context: Context) {
 
     // icon_size_dp / label_size_sp / side_padding_dp are clamped here the same way
     // widgetOffsetXDp already was, below -- a value stored on the device before this range was
-    // enforced at import (SEC-M2) would otherwise reach Compose unchecked: a huge icon size can
+    // enforced at import would otherwise reach Compose unchecked: a huge icon size can
     // overflow a layout constraint, and side padding reaches `Modifier.padding` directly in
     // several places in HomeScreen.kt, which throws on a negative value. The bounds match the
     // ones `Prefs.importAllowList` enforces on the way in.
@@ -496,7 +512,7 @@ class Prefs(private val context: Context) {
      * The widget's own left/right inset. Absent means it has never been set apart, so it
      * follows the favorites and nothing moves the first time this key appears.
      *
-     * Clamped the same way [sidePaddingDp] is (SEC-M2): HomeScreen.kt reaches
+     * Clamped the same way [sidePaddingDp] is: HomeScreen.kt reaches
      * `Modifier.padding(horizontal = widgetSidePaddingDp.dp)` directly, which throws on negative.
      */
     val widgetSidePaddingDp: Flow<Int> =

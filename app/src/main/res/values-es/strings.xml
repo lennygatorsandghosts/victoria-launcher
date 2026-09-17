@@ -17,6 +17,7 @@
     <string name="action_change_icon">Cambiar icono…</string>
     <string name="action_open_settings">Ajustes de Vicky+</string>
     <string name="action_remove_shortcut">Quitar acceso directo</string>
+    <string name="action_import">Importar</string>
 
     <!-- Home screen -->
     <string name="home_drag_handle">Reordenar</string>
@@ -158,6 +159,8 @@
     <string name="settings_export_done">Ajustes guardados</string>
     <string name="settings_import_done">Ajustes restaurados</string>
     <string name="settings_backup_failed">No se ha podido leer ese archivo</string>
+    <string name="settings_import_confirm_title">¿Importar ajustes?</string>
+    <string name="settings_import_confirm_message">Esto sustituye todos los ajustes actuales por los %1$d guardados en este archivo. No se puede deshacer.</string>
     <string name="settings_dim_color">Color de atenuación</string>
     <string name="settings_dim_color_detail">El color con el que se atenúa el fondo; los controles de arriba fijan cuánto</string>
     <string name="color_from_wallpaper">De tu fondo de pantalla</string>
