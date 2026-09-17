@@ -133,6 +133,9 @@ fun HomeRoute(
     launchCounts: Map<String, Int>,
     showWelcome: Boolean,
     onWelcomeDismissed: () -> Unit,
+    showNiagaraOffer: Boolean,
+    onApplyNiagaraOffer: () -> Unit,
+    onDismissNiagaraOffer: () -> Unit,
     scrubBandFractions: Pair<Float, Float>?,
     onSetScrubBand: (Float, Float) -> Unit,
     onClearScrubBand: () -> Unit,
@@ -564,6 +567,7 @@ fun HomeRoute(
                     favBand = ScrubBand(topPx = top, heightPx = bottom - top)
                 },
                 nowPlayingHasContent = nowPlayingHasContent,
+                homeHeaderEnabled = settings.homeHeaderEnabled,
                 contentColor = settings.contentColor,
                 showFavoriteLabels = settings.showFavoriteLabels,
                 alignment = settings.alignment,
@@ -756,6 +760,11 @@ fun HomeRoute(
 
         if (showWelcome) {
             WelcomeDialog(onDismiss = onWelcomeDismissed)
+        } else if (showNiagaraOffer) {
+            NiagaraOfferDialog(
+                onApply = onApplyNiagaraOffer,
+                onNotNow = onDismissNiagaraOffer,
+            )
         }
 
         folderPickerFor?.let { target ->
@@ -903,6 +912,7 @@ data class HomeSettings(
     val dimColor: Int,
     val hapticsEnabled: Boolean,
     val showFavoriteLabels: Boolean,
+    val homeHeaderEnabled: Boolean,
     val doubleTapToLock: Boolean,
     val contentColor: Color,
     /** Validated already — see AppRepository.queryAllApps — so the dialog never has to check. */

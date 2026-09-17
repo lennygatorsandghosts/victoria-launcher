@@ -106,6 +106,7 @@ class Prefs(private val context: Context) {
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
         val DIM_HOME_ALPHA = floatPreferencesKey("dim_home_alpha")
         val SHOW_FAVORITE_LABELS = booleanPreferencesKey("show_favorite_labels")
+        val HOME_HEADER_ENABLED = booleanPreferencesKey("home_header_enabled")
         val TEXT_COLOR_MODE = stringPreferencesKey("text_color_mode")
         val DOUBLE_TAP_TO_LOCK = booleanPreferencesKey("double_tap_to_lock")
         val EDGE_SIDE = stringPreferencesKey("edge_side")
@@ -132,6 +133,7 @@ class Prefs(private val context: Context) {
         val QUICK_LAUNCH_RIGHT = stringPreferencesKey(PREF_QUICK_LAUNCH_RIGHT)
         val LAYOUT_DEFAULTS_VERSION = intPreferencesKey("layout_defaults_version")
         val WELCOME_SEEN = booleanPreferencesKey("welcome_seen")
+        val NIAGARA_OFFER_SEEN = booleanPreferencesKey("niagara_offer_seen")
         val SHOW_APP_ICONS = booleanPreferencesKey("show_app_icons")
         val ALIGNMENT = stringPreferencesKey("alignment")
         val APPLIST_ALIGNMENT = stringPreferencesKey("applist_alignment")
@@ -164,7 +166,7 @@ class Prefs(private val context: Context) {
             Keys.FOLDERS.name to string(),
             Keys.NAME_OVERRIDES.name to string(),
             Keys.ICON_OVERRIDES.name to string(),
-            Keys.ICON_SIZE_DP.name to int(32, 96), // SettingsScreen icon-size slider
+            Keys.ICON_SIZE_DP.name to int(20, 96), // SettingsScreen icon-size slider
             Keys.LABEL_SIZE_SP.name to int(10, 28), // SettingsScreen text-size slider
             Keys.ITEM_SPACING_DP.name to int(0, 40), // SettingsScreen favorite-spacing slider
             Keys.SIDE_PADDING_DP.name to int(0, 96), // HomeScreen side-padding stepper
@@ -192,6 +194,7 @@ class Prefs(private val context: Context) {
             Keys.HAPTICS_ENABLED.name to bool(),
             Keys.DIM_HOME_ALPHA.name to float(0f, 0.85f), // SettingsScreen dim-home slider
             Keys.SHOW_FAVORITE_LABELS.name to bool(),
+            Keys.HOME_HEADER_ENABLED.name to bool(),
             Keys.TEXT_COLOR_MODE.name to string(),
             Keys.DOUBLE_TAP_TO_LOCK.name to bool(),
             Keys.EDGE_SIDE.name to string(),
@@ -222,9 +225,10 @@ class Prefs(private val context: Context) {
             Keys.EDGE_ZONE_WIDTH_DP.name to int(32, 96), // SettingsScreen edge-zone-width slider
             Keys.QUICK_LAUNCH_LEFT.name to string(),
             Keys.QUICK_LAUNCH_RIGHT.name to string(),
-            // 0 = installed before this scheme, 1 = a genuine first run -- see ensureInstallMarker().
-            Keys.LAYOUT_DEFAULTS_VERSION.name to int(0, 1),
+            // 0 = installed before this scheme, 1/2 = genuine first-run layout generations -- see ensureInstallMarker().
+            Keys.LAYOUT_DEFAULTS_VERSION.name to int(0, 2),
             Keys.WELCOME_SEEN.name to bool(),
+            Keys.NIAGARA_OFFER_SEEN.name to bool(),
             Keys.SHOW_APP_ICONS.name to bool(),
             Keys.ALIGNMENT.name to string(),
             Keys.APPLIST_ALIGNMENT.name to string(),
@@ -251,6 +255,10 @@ class Prefs(private val context: Context) {
     )
 
     private val data get() = context.dataStore.data
+
+    internal suspend fun editPreferences(block: MutablePreferences.() -> Unit) {
+        context.dataStore.edit { it.block() }
+    }
 
     /**
      * Every stored setting as JSON, for moving a set-up to another phone or keeping it.
@@ -397,7 +405,7 @@ class Prefs(private val context: Context) {
     // several places in HomeScreen.kt, which throws on a negative value. The bounds match the
     // ones `Prefs.importAllowList` enforces on the way in.
 
-    val iconSizeDp: Flow<Int> = data.map { (it[Keys.ICON_SIZE_DP] ?: 56).coerceIn(32, 96) }.distinctUntilChanged()
+    val iconSizeDp: Flow<Int> = data.map { (it[Keys.ICON_SIZE_DP] ?: 56).coerceIn(20, 96) }.distinctUntilChanged()
 
     val labelSizeSp: Flow<Int> = data.map { (it[Keys.LABEL_SIZE_SP] ?: 16).coerceIn(10, 28) }.distinctUntilChanged()
 
@@ -486,6 +494,9 @@ class Prefs(private val context: Context) {
 
     val showFavoriteLabels: Flow<Boolean> =
         data.map { it[Keys.SHOW_FAVORITE_LABELS] ?: true }.distinctUntilChanged()
+
+    val homeHeaderEnabled: Flow<Boolean> =
+        data.map { it[Keys.HOME_HEADER_ENABLED] ?: true }.distinctUntilChanged()
 
     val textColorMode: Flow<TextColorMode> = data.map {
         runCatching { TextColorMode.valueOf(it[Keys.TEXT_COLOR_MODE] ?: TextColorMode.AUTO.name) }
@@ -624,11 +635,14 @@ class Prefs(private val context: Context) {
         if (top != null && height != null) top to height else null
     }.distinctUntilChanged()
 
-    /** 0 = installed before this scheme, 1 = a genuine first run. Absent until [ensureInstallMarker]. */
+    /** 0 = installed before this scheme, 1/2 = genuine first-run layout generations. Absent until [ensureInstallMarker]. */
     val layoutDefaultsVersion: Flow<Int?> =
         data.map { it[Keys.LAYOUT_DEFAULTS_VERSION] }.distinctUntilChanged()
 
     val welcomeSeen: Flow<Boolean> = data.map { it[Keys.WELCOME_SEEN] ?: false }.distinctUntilChanged()
+
+    val niagaraOfferSeen: Flow<Boolean> =
+        data.map { it[Keys.NIAGARA_OFFER_SEEN] ?: false }.distinctUntilChanged()
 
     /** True once any padding has been set by hand, which retires the computed first-run layout. */
     val hasCustomLayout: Flow<Boolean> =
@@ -872,6 +886,10 @@ class Prefs(private val context: Context) {
         context.dataStore.edit { it[Keys.SHOW_FAVORITE_LABELS] = v }
     }
 
+    suspend fun setHomeHeaderEnabled(v: Boolean) {
+        context.dataStore.edit { it[Keys.HOME_HEADER_ENABLED] = v }
+    }
+
     suspend fun setTextColorMode(v: TextColorMode) {
         context.dataStore.edit { it[Keys.TEXT_COLOR_MODE] = v.name }
     }
@@ -1034,6 +1052,10 @@ class Prefs(private val context: Context) {
         context.dataStore.edit { it[Keys.WELCOME_SEEN] = v }
     }
 
+    suspend fun setNiagaraOfferSeen(v: Boolean) {
+        context.dataStore.edit { it[Keys.NIAGARA_OFFER_SEEN] = v }
+    }
+
     /**
      * Stamps whether this install is new, once. Nothing writes to the store before the user
      * changes something, so an empty store is the one reliable signal of a first run — which
@@ -1042,7 +1064,13 @@ class Prefs(private val context: Context) {
     suspend fun ensureInstallMarker() {
         context.dataStore.edit { pref ->
             if (pref[Keys.LAYOUT_DEFAULTS_VERSION] == null) {
-                pref[Keys.LAYOUT_DEFAULTS_VERSION] = if (pref.asMap().isEmpty()) 1 else 0
+                if (pref.asMap().isEmpty()) {
+                    pref.writeNiagaraPresetValues()
+                    pref[Keys.NIAGARA_OFFER_SEEN] = true
+                    pref[Keys.LAYOUT_DEFAULTS_VERSION] = 2
+                } else {
+                    pref[Keys.LAYOUT_DEFAULTS_VERSION] = 0
+                }
             }
         }
     }

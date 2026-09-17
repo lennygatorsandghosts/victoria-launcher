@@ -314,12 +314,12 @@ class ImportValidationTest {
         // rounding of a decimal literal -- the range check is exercised the same way either
         // type, and this way the assertion is exact.
         val text = envelopeOf(
-            "icon_size_dp" to """{"type":"int","value":32}""",
+            "icon_size_dp" to """{"type":"int","value":20}""",
             "label_size_sp" to """{"type":"int","value":28}""",
             "status_bar_peek_seconds" to """{"type":"int","value":30}""",
         )
         val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
-        assertEquals(32, parsed.value("icon_size_dp"))
+        assertEquals(20, parsed.value("icon_size_dp"))
         assertEquals(28, parsed.value("label_size_sp"))
         assertEquals(30, parsed.value("status_bar_peek_seconds"))
     }

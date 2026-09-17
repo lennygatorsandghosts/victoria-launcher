@@ -198,6 +198,7 @@ fun HomeScreen(
     onCommitPadding: (PaddingSlot, Int) -> Unit,
     onFavoritesBoundsChanged: (topPx: Float, bottomPx: Float) -> Unit,
     nowPlayingHasContent: Boolean,
+    homeHeaderEnabled: Boolean,
     contentColor: Color,
     showFavoriteLabels: Boolean,
     alignment: HomeAlignment,
@@ -621,6 +622,13 @@ fun HomeScreen(
                     )
                 }
                 Spacer(Modifier.height(6.dp))
+            }
+
+            if (!editMode && homeHeaderEnabled) {
+                HomeHeader(
+                    contentColor = contentColor,
+                    sidePaddingDp = sidePaddingDp,
+                )
             }
 
             // With no widget on screen there is nothing above the favorites, so Now Playing

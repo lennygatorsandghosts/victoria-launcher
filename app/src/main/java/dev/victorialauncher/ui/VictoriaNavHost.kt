@@ -48,6 +48,8 @@ import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.PrivateSpace
 import dev.victorialauncher.data.AzStripVisibility
+import dev.victorialauncher.data.applyNiagaraOffer
+import dev.victorialauncher.data.applyNiagaraPreset
 import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
@@ -59,6 +61,7 @@ import dev.victorialauncher.data.TextColorMode
 import androidx.compose.ui.res.stringResource
 import dev.victorialauncher.R
 import dev.victorialauncher.data.folderIdFromToken
+import dev.victorialauncher.data.shouldShowNiagaraOffer
 import dev.victorialauncher.data.stripsOtherProfiles
 import dev.victorialauncher.media.isListenerEnabled
 import dev.victorialauncher.service.SystemUi
@@ -358,6 +361,7 @@ fun VictoriaNavHost(
     val hapticsEnabled by app.prefs.hapticsEnabled.collectAsState(initial = true)
     val dimHomeAlpha by app.prefs.dimHomeAlpha.collectAsState(initial = 0f)
     val showFavoriteLabels by app.prefs.showFavoriteLabels.collectAsState(initial = true)
+    val homeHeaderEnabled by app.prefs.homeHeaderEnabled.collectAsState(initial = true)
     val textColorMode by app.prefs.textColorMode.collectAsState(initial = TextColorMode.AUTO)
     val doubleTapToLock by app.prefs.doubleTapToLock.collectAsState(initial = false)
     val widgetId by app.prefs.widgetId.collectAsState(initial = -1)
@@ -393,6 +397,7 @@ fun VictoriaNavHost(
     val scrubBand by app.prefs.scrubBand.collectAsState(initial = null)
     val layoutDefaultsVersion by app.prefs.layoutDefaultsVersion.collectAsState(initial = null)
     val welcomeSeen by app.prefs.welcomeSeen.collectAsState(initial = true)
+    val niagaraOfferSeen by app.prefs.niagaraOfferSeen.collectAsState(initial = true)
     val hasCustomLayout by app.prefs.hasCustomLayout.collectAsState(initial = true)
     val searchUrlTemplate by app.prefs.searchUrlTemplate.collectAsState(initial = "")
     val searchLabel by app.prefs.searchLabel.collectAsState(initial = "")
@@ -542,6 +547,7 @@ fun VictoriaNavHost(
         dimColor = dimColor,
         hapticsEnabled = hapticsEnabled,
         showFavoriteLabels = showFavoriteLabels,
+        homeHeaderEnabled = homeHeaderEnabled,
         doubleTapToLock = doubleTapToLock,
         contentColor = contentColor,
         searchUrlTemplate = searchUrlTemplate,
@@ -636,8 +642,11 @@ fun VictoriaNavHost(
                 // Both flows start at a value that shows nothing, so the dialog can't flash
                 // before the stored answer arrives. A legacy install is stamped 0 and never
                 // qualifies.
-                showWelcome = layoutDefaultsVersion == 1 && !welcomeSeen,
+                showWelcome = layoutDefaultsVersion != null && layoutDefaultsVersion != 0 && !welcomeSeen,
                 onWelcomeDismissed = { scope.launch { app.prefs.setWelcomeSeen(true) } },
+                showNiagaraOffer = shouldShowNiagaraOffer(layoutDefaultsVersion, niagaraOfferSeen),
+                onApplyNiagaraOffer = { scope.launch { app.prefs.applyNiagaraOffer() } },
+                onDismissNiagaraOffer = { scope.launch { app.prefs.setNiagaraOfferSeen(true) } },
                 scrubBandFractions = scrubBand,
                 onSetScrubBand = { top, height -> scope.launch { app.prefs.setScrubBand(top, height) } },
                 onClearScrubBand = { scope.launch { app.prefs.clearScrubBand() } },
@@ -695,6 +704,7 @@ fun VictoriaNavHost(
                 hapticsEnabled = hapticsEnabled,
                 dimHomeAlpha = dimHomeAlpha,
                 showFavoriteLabels = showFavoriteLabels,
+                homeHeaderEnabled = homeHeaderEnabled,
                 textColorMode = textColorMode,
                 textColorCustom = textColorCustom,
                 dimColor = dimColor,
@@ -726,6 +736,7 @@ fun VictoriaNavHost(
                 onSetIconSize = { scope.launch { app.prefs.setIconSizeDp(it) } },
                 onSetLabelSize = { scope.launch { app.prefs.setLabelSizeSp(it) } },
                 onSetItemSpacing = { scope.launch { app.prefs.setItemSpacingDp(it) } },
+                onApplyNiagaraPreset = { scope.launch { app.prefs.applyNiagaraPreset() } },
                 onSetFont = { scope.launch { app.prefs.setFont(it) } },
                 onSetHideStatusBar = { scope.launch { app.prefs.setHideStatusBar(it) } },
                 onSetHideStatusBarAppList = { scope.launch { app.prefs.setHideStatusBarAppList(it) } },
@@ -734,6 +745,7 @@ fun VictoriaNavHost(
                 onSetHaptics = { scope.launch { app.prefs.setHapticsEnabled(it) } },
                 onSetDimHome = { scope.launch { app.prefs.setDimHomeAlpha(it) } },
                 onSetShowFavoriteLabels = { scope.launch { app.prefs.setShowFavoriteLabels(it) } },
+                onSetHomeHeaderEnabled = { scope.launch { app.prefs.setHomeHeaderEnabled(it) } },
                 onSetTextColorMode = { scope.launch { app.prefs.setTextColorMode(it) } },
                 onSetTextColorCustom = { scope.launch { app.prefs.setTextColorCustom(it) } },
                 onSetDimColor = { scope.launch { app.prefs.setDimColor(it) } },

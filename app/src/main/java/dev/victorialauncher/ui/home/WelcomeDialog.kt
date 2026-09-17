@@ -40,3 +40,21 @@ fun WelcomeDialog(onDismiss: () -> Unit) {
         },
     )
 }
+
+@Composable
+fun NiagaraOfferDialog(
+    onApply: () -> Unit,
+    onNotNow: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onNotNow,
+        title = { Text(stringResource(R.string.niagara_title)) },
+        text = { Text(stringResource(R.string.niagara_offer_message)) },
+        confirmButton = {
+            TextButton(onClick = onApply) { Text(stringResource(R.string.action_apply)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onNotNow) { Text(stringResource(R.string.niagara_not_now)) }
+        },
+    )
+}
