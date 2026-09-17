@@ -248,6 +248,7 @@
     <string name="search_url_error_multiple_placeholders">Solo se permite un %1$s</string>
     <string name="search_url_error_unsupported_scheme">Debe empezar por https:// o http://</string>
     <string name="search_url_error_userinfo">No puede incluir un usuario antes de la dirección</string>
+    <string name="search_url_error_percent_in_authority">No puede incluir un carácter de escape porcentual en la dirección del sitio</string>
     <string name="search_url_error_missing_host">Falta la dirección del sitio</string>
     <string name="search_url_error_placeholder_in_authority">%1$s no puede formar parte de la dirección del sitio — solo de la ruta, la consulta o el fragmento que va después</string>
     <string name="search_url_error_malformed">Eso no parece una URL válida</string>

@@ -187,6 +187,97 @@ class SearchUrlTest {
         assertInvalid("https:///search?q=%s", SearchUrl.Reason.MISSING_HOST)
     }
 
+    // --- percent-escapes in the authority ---
+    // java.net.URI leaves a %XX escape in the host raw, Android's Uri.getHost() decodes it, and
+    // a browser decodes it and then re-validates — three parsers, three different opinions about
+    // what the escape means. A real search host never needs one, so any '%' in the host or port
+    // is refused outright rather than trying to enumerate which escapes are dangerous.
+
+    @Test
+    fun `a credential-smuggling escape in the host is rejected`() {
+        assertInvalid("https://good.example%3A%40evil.example/?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+    }
+
+    @Test
+    fun `an escaped forward slash in the host is rejected, lowercase or uppercase hex`() {
+        assertInvalid("https://good.example%2fevil.example/?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+        assertInvalid("https://good.example%2Fevil.example/?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+    }
+
+    @Test
+    fun `an escaped backslash in the host is rejected`() {
+        assertInvalid("https://good.example%5Cevil.example/?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+    }
+
+    @Test
+    fun `an escaped at-sign in the host is rejected`() {
+        assertInvalid("https://good.example%40evil.example/?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+    }
+
+    @Test
+    fun `an escaped hash in the host is rejected`() {
+        assertInvalid("https://good.example%23evil.example/?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+    }
+
+    @Test
+    fun `an escaped question mark in the host is rejected`() {
+        assertInvalid("https://good.example%3Fevil.example/?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+    }
+
+    @Test
+    fun `a null byte escape in the host is rejected`() {
+        assertInvalid("https://good.example%00evil.example/?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+    }
+
+    @Test
+    fun `a percent-escape in the path is still valid`() {
+        assertOk("https://search.example.org/a%20b/search?lang=en%2DUS&q=%s")
+    }
+
+    @Test
+    fun `the placeholder in the host is still reported as placeholder-in-authority, not percent-escape`() {
+        // The %s placeholder is swapped for a letters-only stand-in before this check runs, so
+        // it must not be shadowed by the new, more general percent rule.
+        assertInvalid("https://%s.example/", SearchUrl.Reason.PLACEHOLDER_IN_AUTHORITY)
+    }
+
+    // --- backslashes ---
+    // A browser treats a backslash the same as a forward slash, which is how
+    // "https:\\evil.example/" or "good.example\@evil.example" can smuggle a different host past
+    // a parser that takes the backslash literally. java.net.URI already refuses a raw backslash
+    // anywhere in the template with a syntax error; these tests pin that behaviour so a future
+    // change to the parsing here can't silently let one through.
+
+    @Test
+    fun `a backslash before an at-sign in the host is rejected`() {
+        assertInvalid("https://good.example\\@evil.example/?q=%s", SearchUrl.Reason.MALFORMED)
+    }
+
+    @Test
+    fun `a scheme followed by backslashes instead of slashes is rejected`() {
+        assertInvalid("https:\\\\evil.example/?q=%s", SearchUrl.Reason.MALFORMED)
+    }
+
+    @Test
+    fun `a backslash in the path is rejected`() {
+        assertInvalid("https://good.example/\\evil?q=%s", SearchUrl.Reason.MALFORMED)
+    }
+
+    // --- IPv6 literal hosts ---
+
+    @Test
+    fun `an IPv6 literal host is valid`() {
+        assertOk("https://[2001:db8::1]/search?q=%s")
+    }
+
+    @Test
+    fun `an IPv6 literal host with a zone id is rejected`() {
+        // A zone id is only ever written into a URI as a percent-escaped "%25" prefix (RFC
+        // 6874), so it falls under the same "no '%' in the authority" rule as everything else
+        // above — no separate case needed to reject it.
+        assertInvalid("https://[fe80::1%25eth0]/search?q=%s", SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+    }
+
     // --- build(): encoding ---
 
     @Test
