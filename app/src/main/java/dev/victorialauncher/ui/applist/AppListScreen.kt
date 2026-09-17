@@ -19,6 +19,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.OutlinedTextField
@@ -96,6 +98,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpOffset
@@ -212,6 +215,8 @@ fun AppListScreen(
     /** The model a query runs against, which may carry hidden apps the list itself omits. */
     searchModel: AppListModel,
     searchEnabled: Boolean,
+    forceSearchVisible: Boolean = false,
+    focusSearchTick: Int = 0,
     searchAtBottom: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
@@ -236,8 +241,9 @@ fun AppListScreen(
 
     // Searching is a different mode from scrubbing: the letters shrink to whatever matched,
     // so the strip is hidden and placement stays out of it until the query is cleared.
-    val searching = searchEnabled && query.isNotBlank()
-    val displayModel = remember(model, searchModel, query, searchEnabled) {
+    val searchActive = searchEnabled || forceSearchVisible
+    val searching = searchActive && query.isNotBlank()
+    val displayModel = remember(model, searchModel, query, searchActive) {
         if (!searching) {
             model
         } else {
@@ -706,7 +712,7 @@ fun AppListScreen(
                     // itself = a tap on the wallpaper.
                     // Taps are in overlay space and the list is in its own; only a field above it
                     // shifts the two apart.
-                    val listOffset = if (searchEnabled && !searchAtBottom) searchHeightPx else 0
+                    val listOffset = if (searchActive && !searchAtBottom) searchHeightPx else 0
                     if (claimed || moved || isOnListContent(start.y - listOffset)) return@awaitEachGesture
 
                     currentDismiss()
@@ -753,7 +759,7 @@ fun AppListScreen(
                 )
                 .imePadding()
         ) {
-        if (searchEnabled && !searchAtBottom) {
+        if (searchActive && !searchAtBottom) {
             // Pinned above the list rather than scrolling with it as a first item: every row
             // index the scrub placement works from would shift by one, and the field would
             // disappear the moment you scrolled.
@@ -763,6 +769,7 @@ fun AppListScreen(
                 contentColor = contentColor,
                 activeSide = activeSide,
                 showAlphabet = showAlphabet,
+                focusSearchTick = focusSearchTick,
                 modifier = Modifier.onSizeChanged { searchHeightPx = it.height },
             )
         }
@@ -917,13 +924,14 @@ fun AppListScreen(
         }
 
         }
-        if (searchEnabled && searchAtBottom) {
+        if (searchActive && searchAtBottom) {
             SearchField(
                 query = query,
                 onQueryChange = onQueryChange,
                 contentColor = contentColor,
                 activeSide = activeSide,
                 showAlphabet = showAlphabet,
+                focusSearchTick = focusSearchTick,
                 atBottom = true,
             )
         }
@@ -1183,9 +1191,20 @@ private fun SearchField(
     contentColor: Color,
     activeSide: EdgeSide,
     showAlphabet: Boolean,
+    focusSearchTick: Int,
     atBottom: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(focusSearchTick) {
+        if (focusSearchTick > 0) {
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
+
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
@@ -1221,6 +1240,7 @@ private fun SearchField(
             unfocusedContainerColor = Color.Transparent,
         ),
         modifier = modifier
+            .focusRequester(focusRequester)
             // The overlay draws under both system bars, so without this the field sits behind
             // the clock at the top, or the gesture pill at the bottom.
             .then(

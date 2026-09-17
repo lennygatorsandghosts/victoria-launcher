@@ -68,6 +68,7 @@
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_section_behavior">Behavior</string>
     <string name="settings_section_now_playing">Now Playing</string>
+    <string name="settings_section_vicky_button">Vicky+ button</string>
     <string name="settings_section_apps">Apps</string>
     <string name="settings_section_about">About</string>
     <string name="settings_preview">Preview</string>
@@ -106,6 +107,11 @@
     <string name="settings_quick_launch_left">Swipe left below favorites</string>
     <string name="settings_quick_launch_right">Swipe right below favorites</string>
     <string name="settings_quick_launch_none">None</string>
+    <string name="settings_vicky_button_show">Show the Vicky+ button</string>
+    <string name="vicky_button_edit_tap">Edit tap action</string>
+    <string name="vicky_button_edit_swipe_up">Edit swipe up action</string>
+    <string name="vicky_button_edit_swipe_left">Edit swipe left action</string>
+    <string name="vicky_button_edit_swipe_right">Edit swipe right action</string>
     <string name="settings_search_bar">Search bar in the app list</string>
     <string name="settings_search_bar_detail">A box for filtering the list by name</string>
     <string name="settings_search_bar_bottom">Search bar at the bottom</string>
@@ -252,6 +258,7 @@
     <string name="search_dialog_action">Search</string>
     <string name="toast_search_failed">Couldn\'t find a browser to open that search</string>
     <string name="toast_search_unavailable">The search address isn\'t valid — check it in Settings</string>
+    <string name="toast_open_url_failed">Couldn\'t open that address</string>
     <string name="settings_section_search">Search button</string>
     <string name="settings_search_button_detail">Opens the address below in your browser, with what you type in place of %1$s</string>
     <string name="settings_search_button_label">Label</string>

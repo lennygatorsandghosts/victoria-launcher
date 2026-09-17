@@ -27,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -45,6 +46,8 @@ import android.widget.Toast
 import dev.victorialauncher.data.IconShape
 import dev.victorialauncher.data.AppFont
 import dev.victorialauncher.data.AppInfo
+import dev.victorialauncher.data.ButtonAction
+import dev.victorialauncher.data.ButtonSlot
 import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.PrivateSpace
 import dev.victorialauncher.data.AzStripVisibility
@@ -55,13 +58,19 @@ import dev.victorialauncher.data.HomePaddings
 import dev.victorialauncher.data.MAX_IMPORT_FILE_BYTES
 import dev.victorialauncher.data.ParsedExport
 import dev.victorialauncher.data.QuickLaunchSlot
+import dev.victorialauncher.data.SearchUrl
 import dev.victorialauncher.data.TextColorMode
+import dev.victorialauncher.data.effectiveActions
 import androidx.compose.ui.res.stringResource
 import dev.victorialauncher.R
 import dev.victorialauncher.data.folderIdFromToken
 import dev.victorialauncher.data.stripsOtherProfiles
 import dev.victorialauncher.media.isListenerEnabled
 import dev.victorialauncher.service.SystemUi
+import dev.victorialauncher.ui.applist.AppListModel
+import dev.victorialauncher.ui.applist.buildAppListModel
+import dev.victorialauncher.ui.button.ButtonActionPickerScreen
+import dev.victorialauncher.ui.button.actionLabel
 import dev.victorialauncher.ui.common.IconPickerScreen
 import dev.victorialauncher.ui.common.IconStyle
 import dev.victorialauncher.ui.common.LocalIconConfig
@@ -377,6 +386,8 @@ fun VictoriaNavHost(
     val edgeZoneWidthDp by app.prefs.edgeZoneWidthDp.collectAsState(initial = 56)
     val quickLaunchLeftKey by app.prefs.quickLaunchLeft.collectAsState(initial = null)
     val quickLaunchRightKey by app.prefs.quickLaunchRight.collectAsState(initial = null)
+    val vbuttonStoredActions by app.prefs.vbuttonStoredActions.collectAsState(initial = emptyMap())
+    val vbuttonEnabled by app.prefs.vbuttonEnabled.collectAsState(initial = true)
     val showAppIcons by app.prefs.showAppIcons.collectAsState(initial = true)
     val fontFile by app.prefs.fontFile.collectAsState(initial = null)
     val textColorCustom by app.prefs.textColorCustom.collectAsState(initial = 0xFFFFFFFF.toInt())
@@ -401,6 +412,15 @@ fun VictoriaNavHost(
     LaunchedEffect(searchUrlTemplate, searchLabel) { reloadApps(known = null, pass = reloadOrder.begin()) }
     val contentColor = rememberContentColor(textColorMode, textColorCustom)
 
+    val vbuttonActions = remember(vbuttonStoredActions, searchUrlTemplate, quickLaunchLeftKey, quickLaunchRightKey) {
+        effectiveActions(
+            stored = vbuttonStoredActions,
+            hasSearchTemplate = SearchUrl.validate(searchUrlTemplate) is SearchUrl.Validation.Ok,
+            quickLeftKey = quickLaunchLeftKey,
+            quickRightKey = quickLaunchRightKey,
+        )
+    }
+
     val appsByKey = remember(allApps) { allApps.associateBy { it.key } }
     // The number the hidden-apps screen itself arrives at, rather than the size of the stored
     // set: that screen lists rows, and a hidden app inside a locked private space has no row.
@@ -416,6 +436,14 @@ fun VictoriaNavHost(
                 foldersById[folderId]?.let { FavoriteEntry.FolderRef(it) }
             } else {
                 appsByKey[token]?.let { FavoriteEntry.App(it) }
+            }
+        }
+    }
+
+    val vbuttonActionLabels = remember(vbuttonActions, appsByKey, nameOverrides) {
+        ButtonSlot.entries.associateWith { slot ->
+            actionLabel(vbuttonActions[slot] ?: ButtonAction.None) { key ->
+                appsByKey[key]?.let { nameOverrides[it.key] ?: it.label }
             }
         }
     }
@@ -532,8 +560,8 @@ fun VictoriaNavHost(
         appListSearchHidden = appListSearchHidden,
         hideStatusBarAppList = hideStatusBarAppList,
         sortByUsage = sortByUsage,
-        quickLaunchLeft = quickLaunchLeftKey?.let { appsByKey[it] },
-        quickLaunchRight = quickLaunchRightKey?.let { appsByKey[it] },
+        vbuttonEnabled = vbuttonEnabled,
+        vbuttonActions = vbuttonActions,
         // Both flows start null/true so nothing is centered or offered before the stored
         // answer arrives; a legacy install is stamped 0 and never enters either path.
         centerFavorites = layoutDefaultsVersion == 1 && !hasCustomLayout,
@@ -776,13 +804,10 @@ fun VictoriaNavHost(
                 onSetAppListSearchBottom = { scope.launch { app.prefs.setAppListSearchBottom(it) } },
                 onSetAppListSearchHidden = { scope.launch { app.prefs.setAppListSearchHidden(it) } },
                 onSetSwipeUpOpensList = { scope.launch { app.prefs.setSwipeUpOpensList(it) } },
-                quickLaunchLeftLabel = quickLaunchLeftKey?.let { key ->
-                    appsByKey[key]?.let { nameOverrides[it.key] ?: it.label }
-                },
-                quickLaunchRightLabel = quickLaunchRightKey?.let { key ->
-                    appsByKey[key]?.let { nameOverrides[it.key] ?: it.label }
-                },
-                onOpenQuickLaunchPicker = { slot -> navController.navigate("apppicker/" + slot.name) },
+                vbuttonEnabled = vbuttonEnabled,
+                vbuttonActionLabels = vbuttonActionLabels,
+                onSetVButtonEnabled = { scope.launch { app.prefs.setVButtonEnabled(it) } },
+                onOpenButtonActionPicker = { slot -> navController.navigate("buttonaction/" + slot.name) },
                 onSetAlignment = { scope.launch { app.prefs.setAlignment(it) } },
                 onSetAppListAlignment = { scope.launch { app.prefs.setAppListAlignment(it) } },
                 onSetIconSide = { scope.launch { app.prefs.setIconSide(it) } },
@@ -875,6 +900,48 @@ fun VictoriaNavHost(
                 iconSizeDp = iconSizeDp,
                 onPick = { picked ->
                     scope.launch { app.prefs.setQuickLaunch(slot, picked?.key) }
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable("buttonaction/{slot}") { entry ->
+            val slot = runCatching {
+                ButtonSlot.valueOf(entry.arguments?.getString("slot").orEmpty())
+            }.getOrDefault(ButtonSlot.TAP)
+            val pickerModel by produceState(
+                initialValue = AppListModel(emptyList(), emptyList()),
+                allApps,
+                hiddenApps,
+                nameOverrides,
+                if (sortByUsage) launchCounts else emptyMap(),
+            ) {
+                val counts = if (sortByUsage) launchCounts else emptyMap()
+                value = withContext(Dispatchers.Default) {
+                    buildAppListModel(
+                        allApps,
+                        hiddenApps,
+                        { nameOverrides[it.key] ?: it.label },
+                        counts,
+                        englishName = { app.appRepository.englishLabel(it) },
+                    )
+                }
+            }
+            ButtonActionPickerScreen(
+                title = when (slot) {
+                    ButtonSlot.TAP -> stringResource(R.string.vicky_button_edit_tap)
+                    ButtonSlot.SWIPE_UP -> stringResource(R.string.vicky_button_edit_swipe_up)
+                    ButtonSlot.SWIPE_LEFT -> stringResource(R.string.vicky_button_edit_swipe_left)
+                    ButtonSlot.SWIPE_RIGHT -> stringResource(R.string.vicky_button_edit_swipe_right)
+                },
+                current = vbuttonActions[slot] ?: ButtonAction.None,
+                model = pickerModel,
+                nameOverrides = nameOverrides,
+                iconSizeDp = iconSizeDp,
+                hasPrivateSpace = privateSpace != PrivateSpace.Absent,
+                onPick = { action ->
+                    scope.launch { app.prefs.setVButtonAction(slot, action.encode()) }
                     navController.popBackStack()
                 },
                 onBack = { navController.popBackStack() },
