@@ -920,7 +920,6 @@ fun AppListScreen(
 
         }
         }
-        }
 
         }
         if (searchActive && searchAtBottom) {
