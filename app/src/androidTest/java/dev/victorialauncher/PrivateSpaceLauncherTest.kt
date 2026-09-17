@@ -99,8 +99,8 @@ class PrivateSpaceLauncherTest {
 
         searchFor(PRIVATE_ROW_SEARCH)
         assertTrue(
-            "expected the $PRIVATE_ROW_LABEL row to be listed",
-            LauncherTestUtils.waitForText(PRIVATE_ROW_LABEL),
+            "expected the $PRIVATE_ROW_UNLOCKED_LABEL row to be listed",
+            LauncherTestUtils.waitForText(PRIVATE_ROW_UNLOCKED_LABEL),
         )
     }
 
@@ -123,7 +123,7 @@ class PrivateSpaceLauncherTest {
         searchFor(PRIVATE_ROW_SEARCH)
         assertTrue(
             "the row that unlocks the space has to stay, or there is no way back in",
-            LauncherTestUtils.waitForText(PRIVATE_ROW_LABEL),
+            LauncherTestUtils.waitForText(PRIVATE_ROW_LOCKED_LABEL),
         )
     }
 
@@ -167,9 +167,9 @@ class PrivateSpaceLauncherTest {
     fun pressingTheRowWhileLockedAsksForTheSpaceToBeOpened() {
         setLocked(true)
         searchFor(PRIVATE_ROW_SEARCH)
-        assertTrue(LauncherTestUtils.waitForText(PRIVATE_ROW_LABEL))
+        assertTrue(LauncherTestUtils.waitForText(PRIVATE_ROW_LOCKED_LABEL))
 
-        device.findObject(By.text(PRIVATE_ROW_LABEL)).click()
+        device.findObject(By.text(PRIVATE_ROW_LOCKED_LABEL)).click()
 
         // This emulator has no screen lock, so the system asks for nothing and the space
         // simply opens. On a phone with one, its own authentication comes up first.
@@ -194,8 +194,8 @@ class PrivateSpaceLauncherTest {
         )
 
         searchFor(PRIVATE_ROW_SEARCH)
-        assertTrue(LauncherTestUtils.waitForText(PRIVATE_ROW_LABEL))
-        device.findObject(By.text(PRIVATE_ROW_LABEL)).click()
+        assertTrue(LauncherTestUtils.waitForText(PRIVATE_ROW_UNLOCKED_LABEL))
+        device.findObject(By.text(PRIVATE_ROW_UNLOCKED_LABEL)).click()
 
         // The whole point of the press: what it hides has to be gone before anyone holding the
         // phone could read it, which is why this window is a short one. Re-reading every app of
@@ -393,8 +393,16 @@ class PrivateSpaceLauncherTest {
         /** Matches both names, and neither exactly, so the search box is never what is found. */
         const val SHARED_SEARCH = "C"
 
-        const val PRIVATE_ROW_LABEL = "Private space"
-        const val PRIVATE_ROW_SEARCH = "Private spac"
+        /**
+         * The padlock row says what pressing it will do, not what it is: the section it now
+         * sits under is the thing called "Private space", and clicking a heading does
+         * nothing. Which of the two is on screen is the state of the space.
+         */
+        const val PRIVATE_ROW_LOCKED_LABEL = "Unlock private space"
+        const val PRIVATE_ROW_UNLOCKED_LABEL = "Lock private space"
+
+        /** Matches both row labels and the section heading, and none of them exactly. */
+        const val PRIVATE_ROW_SEARCH = "private spac"
         const val MISSING_ROW_LABEL = "App no longer installed"
         const val MOVE_TO_FOLDER_LABEL = "Move to folder…"
 
