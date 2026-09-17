@@ -243,7 +243,7 @@ class ImportValidationTest {
 
     @Test
     fun `a leading UTF-8 BOM is tolerated`() {
-        val text = "﻿" + envelopeOf("font" to """{"type":"string","value":"SANS_SERIF"}""")
+        val text = "\uFEFF" + envelopeOf("font" to """{"type":"string","value":"SANS_SERIF"}""")
         val parsed = parseSettingsExport(text, Prefs.importAllowList)
         assertNotNull(parsed)
         assertEquals("SANS_SERIF", parsed!!.value("font"))

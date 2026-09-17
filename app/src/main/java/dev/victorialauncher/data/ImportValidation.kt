@@ -81,7 +81,7 @@ internal fun parseSettingsExport(text: String, known: Map<String, ExpectedType>)
     if (text.length > MAX_IMPORT_FILE_BYTES) return null
     // Some tools still emit one; it is invisible in most editors, and rejecting an otherwise
     // valid file over it would be a strange way to fail.
-    val cleaned = text.removePrefix("﻿")
+    val cleaned = text.removePrefix("\uFEFF")
 
     // runCatching also catches a StackOverflowError, which is the realistic failure mode for
     // adversarial nesting depth (e.g. a file that is nothing but "[[[[[...") -- org.json's
