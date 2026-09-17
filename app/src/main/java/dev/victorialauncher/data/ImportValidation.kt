@@ -47,14 +47,15 @@ internal class ParsedExport(val values: List<Pair<Preferences.Key<*>, Any>>)
 
 /**
  * The type [Prefs.importAllowList] restores a name under, and -- for INT/FLOAT -- the semantic
- * range a legitimate value has to sit inside (SEC-M2). The Int/Float *machine* range is already
- * enforced by [readTypedValue]; [range] catches a value that fits the type but makes no sense as
- * this specific setting -- a negative side padding, say, which later throws out of
- * `Modifier.padding`, or an icon size in the thousands, which likely overflows Compose's layout
- * constraints. Every INT/FLOAT entry in [Prefs.importAllowList] declares one, even where that
- * only means "the type's own full range" (an ARGB color, say, where the sign bit is just the
- * alpha byte) -- a reflection-based test in ImportValidationTest fails if a numeric key is added
- * without one, the same way the allow-list-coverage test already does for a missing key.
+ * range a legitimate value has to sit inside, beyond just the type's own machine range. The
+ * Int/Float *machine* range is already enforced by [readTypedValue]; [range] catches a value
+ * that fits the type but makes no sense as this specific setting -- a negative side padding,
+ * say, which later throws out of `Modifier.padding`, or an icon size in the thousands, which
+ * likely overflows Compose's layout constraints. Every INT/FLOAT entry in
+ * [Prefs.importAllowList] declares one, even where that only means "the type's own full range"
+ * (an ARGB color, say, where the sign bit is just the alpha byte) -- a reflection-based test in
+ * ImportValidationTest fails if a numeric key is added without one, the same way the
+ * allow-list-coverage test already does for a missing key.
  */
 internal data class KnownPreference(val type: ExpectedType, val range: NumericRange? = null)
 
@@ -104,13 +105,15 @@ private const val FONT_FILE_KEY_NAME = "font_file"
  *
  * Returns null when the file isn't recognizable as a Victoria Launcher export at all: too
  * large, not JSON, missing the envelope's `values` object, a `format` major this build doesn't
- * understand, or -- CR-2 -- a non-empty `values` object none of whose entries survived
- * validation. That last case is deliberately distinct from a `values` object that was empty to
- * begin with (a never-configured install's own export, which still imports and clears the store
- * to defaults, exactly as the pre-hardening parser did: iterating zero keys never threw there
- * either): one says "restore me to nothing," the other says "here is content, all of which
- * turned out to be untrustworthy," and only the second is worth refusing outright rather than
- * silently wiping every existing setting.
+ * understand, or the `values` object comes out empty -- whether it started that way, or it had
+ * entries and none of them survived validation. [Prefs.exportJson] never writes an empty
+ * `values` object itself: [Prefs.ensureInstallMarker] guarantees at least one preference (the
+ * install marker) is set before an export is ever possible, so an empty one reaching here is
+ * never a genuine backup -- it's a hand-edited or otherwise-produced file, and importing it
+ * would silently wipe every existing setting for nothing recognizable in return. The caller
+ * still confirms with the user before writing anything (see [Prefs.parseImport] and
+ * [Prefs.applyImport] in `Prefs.kt`), which is the other half of not letting an import surprise
+ * anyone.
  */
 internal fun parseSettingsExport(
     text: String,
@@ -147,9 +150,10 @@ internal fun parseSettingsExport(
             }
             result.add(preferenceKey(name, expected.type) to value)
         }
-        // CR-2: see the doc comment above -- a `values` object that had real entries but from
-        // which nothing survived is not the same file as one that was honestly empty.
-        if (values.length() > 0 && result.isEmpty()) return@runCatching null
+        // See the doc comment above -- an empty result, whether the file started that way or
+        // just ended up that way once nothing in it checked out, is refused rather than
+        // imported as "restore me to nothing."
+        if (result.isEmpty()) return@runCatching null
         ParsedExport(result)
     }.getOrNull()
 }
@@ -166,7 +170,7 @@ private fun isInDeclaredRange(value: Any, range: NumericRange?): Boolean = when 
  * `VictoriaNavHost`'s `onPickFontFile` copies the picked document into `context.filesDir` before
  * ever calling [Prefs.setFontFile] with the copy's path -- and an export never carries the font
  * file itself, so a `font_file` naming anywhere else names nothing this device can load, and it
- * later reaches `Typeface.createFromFile` with no check of its own (CR-11). [allowedDir] is
+ * later reaches `Typeface.createFromFile` with no check of its own otherwise. [allowedDir] is
  * `null` for a caller that has no directory to check against (a JVM test that isn't exercising
  * this path); every `font_file` value is dropped in that case, since there is nothing to verify
  * it against.

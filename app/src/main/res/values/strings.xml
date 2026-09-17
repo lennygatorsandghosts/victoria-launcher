@@ -16,6 +16,7 @@
     <string name="action_move_to_folder">Move to folder…</string>
     <string name="action_change_icon">Change icon…</string>
     <string name="action_open_settings">Victoria Launcher settings</string>
+    <string name="action_import">Import</string>
 
     <!-- Home screen -->
     <string name="home_drag_handle">Reorder</string>
@@ -157,6 +158,8 @@
     <string name="settings_export_done">Settings saved</string>
     <string name="settings_import_done">Settings restored</string>
     <string name="settings_backup_failed">That file could not be read</string>
+    <string name="settings_import_confirm_title">Import settings?</string>
+    <string name="settings_import_confirm_message">This replaces every current setting with the %1$d saved in this file. This can\'t be undone.</string>
     <string name="settings_dim_color">Dim color</string>
     <string name="settings_dim_color_detail">What the wallpaper is dimmed with; the sliders above set how much</string>
     <string name="color_from_wallpaper">From your wallpaper</string>

@@ -13,7 +13,10 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.Composable
@@ -44,6 +47,7 @@ import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.HomePaddings
 import dev.victorialauncher.data.MAX_IMPORT_FILE_BYTES
+import dev.victorialauncher.data.ParsedExport
 import dev.victorialauncher.data.QuickLaunchSlot
 import dev.victorialauncher.data.TextColorMode
 import androidx.compose.ui.res.stringResource
@@ -340,22 +344,41 @@ fun VictoriaNavHost(
             ).show()
         }
     }
+    // Set once a picked file has been read and validated, so the confirmation dialog below can
+    // tell the user how many settings it would restore and let them back out -- nothing is
+    // written to the store until they say so (see Prefs.parseImport/applyImport).
+    var pendingImport by remember { mutableStateOf<ParsedExport?>(null) }
+
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val text = withContext(Dispatchers.IO) {
+            val parsed = withContext(Dispatchers.IO) {
                 runCatching {
                     val stream = context.contentResolver.openInputStream(uri) ?: return@runCatching null
-                    readBoundedUtf8WithTimeout(stream, MAX_IMPORT_FILE_BYTES, IMPORT_READ_TIMEOUT_MS)
+                    val text = readBoundedUtf8WithTimeout(stream, MAX_IMPORT_FILE_BYTES, IMPORT_READ_TIMEOUT_MS)
+                    text?.let { app.prefs.parseImport(it) }
                 }.getOrNull()
             }
-            val ok = text != null && app.prefs.importJson(text)
-            Toast.makeText(
-                context,
-                if (ok) R.string.settings_import_done else R.string.settings_backup_failed,
-                Toast.LENGTH_SHORT,
-            ).show()
+            if (parsed != null) {
+                pendingImport = parsed
+            } else {
+                Toast.makeText(context, R.string.settings_backup_failed, Toast.LENGTH_SHORT).show()
+            }
         }
+    }
+
+    pendingImport?.let { toImport ->
+        ImportConfirmDialog(
+            settingCount = toImport.values.size,
+            onConfirm = {
+                scope.launch {
+                    app.prefs.applyImport(toImport)
+                    pendingImport = null
+                    Toast.makeText(context, R.string.settings_import_done, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { pendingImport = null },
+        )
     }
 
     val settings = HomeSettings(
@@ -748,4 +771,26 @@ fun VictoriaNavHost(
             )
         }
     }
+}
+
+/**
+ * Shown after a picked file has already been read and validated, before anything is written --
+ * import is destructive (it replaces every current setting, it doesn't merge), so this is the
+ * one chance to back out. [settingCount] is how many settings the file would actually restore,
+ * so the number here always matches what will really change rather than promising a full
+ * backup regardless of what survived validation.
+ */
+@Composable
+private fun ImportConfirmDialog(settingCount: Int, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_import_confirm_title)) },
+        text = { Text(stringResource(R.string.settings_import_confirm_message, settingCount)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(R.string.action_import)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
 }

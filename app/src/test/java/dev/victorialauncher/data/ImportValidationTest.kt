@@ -122,10 +122,10 @@ class ImportValidationTest {
         assertEquals("MONOSPACE", parsed.value("font"))
     }
 
-    // Every one of these gives the bad entry a good companion ("font"): since CR-2, a file
-    // whose ENTIRE `values` object fails to produce anything is refused outright rather than
-    // silently clearing the store (see the "CR-2" tests below), so a single-entry file that is
-    // nothing but the bad row under test would return null here, not an empty list -- that
+    // Every one of these gives the bad entry a good companion ("font"): a file whose ENTIRE
+    // `values` object fails to produce anything is refused outright rather than silently
+    // clearing the store (see the tests further down about that), so a single-entry file that
+    // is nothing but the bad row under test would return null here, not an empty list -- that
     // would test envelope-level refusal instead of the entry-level drop these are about.
 
     @Test
@@ -238,7 +238,7 @@ class ImportValidationTest {
         assertEquals("", parsed.value("folders_json"))
     }
 
-    // --- CR-2: a file with real content none of which survives must not silently wipe the store ---
+    // --- a file with real content none of which survives must not silently wipe the store ---
 
     @Test
     fun `a file whose every entry is an unknown name is refused rather than clearing the store`() {
@@ -271,17 +271,20 @@ class ImportValidationTest {
     }
 
     @Test
-    fun `a genuinely empty values object still imports, clearing the store to defaults`() {
-        // Matches the pre-hardening parser (4f5c98f~1): `values.keys()` on an empty object
-        // never iterates, so it never threw either -- a never-configured install's own export
-        // is legitimately empty, and restoring it should still mean "back to defaults."
+    fun `an empty values object is refused rather than silently wiping the store`() {
+        // A real export is never empty -- Prefs.ensureInstallMarker sets at least the install
+        // marker before an export is ever possible (see the fixture test above, which has 16
+        // keys from a minimally-configured install) -- so an empty `values` object here means
+        // the file isn't a genuine backup, whatever produced it. Before this, an empty object
+        // imported the same as a real one and cleared every setting to defaults; matching the
+        // pre-hardening parser was the point back then, but "restore me to nothing" turned out
+        // to be indistinguishable from "someone handed me junk," and only refusing it protects
+        // against the latter.
         val text = """{"format":1,"app":"Victoria Launcher","values":{}}"""
-        val parsed = parseSettingsExport(text, Prefs.importAllowList)
-        assertNotNull(parsed)
-        assertTrue(parsed!!.values.isEmpty())
+        assertNull(parseSettingsExport(text, Prefs.importAllowList))
     }
 
-    // --- SEC-M2: a value that fits its machine type can still be nonsense as this setting ---
+    // --- a value that fits its machine type can still be nonsense as this setting ---
 
     @Test
     fun `a negative side padding is dropped rather than crashing Compose later`() {
@@ -332,7 +335,7 @@ class ImportValidationTest {
         )
     }
 
-    // --- CR-11: font_file must resolve inside the app's own files directory ---
+    // --- font_file must resolve inside the app's own files directory ---
 
     @Test
     fun `a font_file inside the allowed directory imports`() {
