@@ -21,6 +21,20 @@ class PrivateSpaceTest {
 
         /** Any second profile's serial; a real one is never zero. */
         const val SERIAL = 7L
+
+        /** Nothing concealed, missing rows shown: both Absent and Unlocked amount to this. */
+        val ABSENT_OR_UNLOCKED = 0L to false
+
+        /** A space positively read and positively shut: its serial, missing rows shown. */
+        val LOCKED = SERIAL to false
+
+        /** A space that answered earlier and will not describe itself now. */
+        val UNCERTAIN_KNOWN = SERIAL to true
+
+        /** A space that might be there and has never given up a serial. */
+        val UNCERTAIN_UNNAMED = 0L to true
+
+        val EVERY_STATE = listOf(ABSENT_OR_UNLOCKED, LOCKED, UNCERTAIN_KNOWN, UNCERTAIN_UNNAMED)
     }
 
     @Test
@@ -178,6 +192,63 @@ class PrivateSpaceTest {
         assertTrue(PrivateSpace.Uncertain(user = null, serial = 0L).concealsUnresolved)
     }
 
+    // What a screen listing stored keys leaves out, over every state it can be handed. The
+    // states are given as the pair of values they amount to, because Locked and Unlocked need
+    // a UserHandle no JVM test can build — and nothing in this decision reads one.
+
+    private fun Pair<Long, Boolean>.hides(key: String, resolves: Boolean) =
+        concealsStoredKey(first, second, key, resolves)
+
+    @Test
+    fun `a second profile's key that names nothing is carried in every state, never shown`() {
+        // Absent is what a launcher that is not the default home reports on a fresh process:
+        // the private profile is invisible to it, nothing is left unclassified, and no serial
+        // has been seen — so a private favorite stored earlier names nothing, and an "app no
+        // longer installed" row for it would be both a count of what is in the space and a
+        // checkbox that throws the owner's favorite away.
+        val privateKey = "$appKey|u$SERIAL"
+        val otherProfileKey = "$appKey|u11"
+        for (state in EVERY_STATE) {
+            assertTrue("$state", state.hides(privateKey, resolves = false))
+            assertTrue("$state", state.hides(otherProfileKey, resolves = false))
+        }
+    }
+
+    @Test
+    fun `a main-profile key that names nothing still gets its removable row`() {
+        // The one case that row is for, and it says nothing about a private space: an ordinary
+        // app that was uninstalled. Only the state that cannot tell the two apart hides it.
+        assertFalse(ABSENT_OR_UNLOCKED.hides(appKey, resolves = false))
+        assertFalse(LOCKED.hides(appKey, resolves = false))
+        assertTrue(UNCERTAIN_KNOWN.hides(appKey, resolves = false))
+        assertTrue(UNCERTAIN_UNNAMED.hides(appKey, resolves = false))
+    }
+
+    @Test
+    fun `a key that does name a row is shown unless its own space is the locked one`() {
+        // Carrying is for keys with no row. A work app, or a private app while the space is
+        // open, has one, and leaving it out would hide an app visible everywhere else.
+        val otherProfileKey = "$appKey|u11"
+        for (state in EVERY_STATE) {
+            assertFalse("$state", state.hides(appKey, resolves = true))
+            assertFalse("$state", state.hides(otherProfileKey, resolves = true))
+        }
+        // The locked space's own key goes whether or not it still names a row: the row only
+        // outlives the lock by a moment, and the key is what says which profile it is in.
+        assertTrue(LOCKED.hides("$appKey|u$SERIAL", resolves = true))
+        assertTrue(UNCERTAIN_KNOWN.hides("$appKey|u$SERIAL", resolves = true))
+    }
+
+    @Test
+    fun `a space that answered earlier keeps its padlock when a later read cannot name it`() {
+        // The row is the only way into a locked space, and nothing here re-reads on its own,
+        // so a row dropped on one failed read stays dropped.
+        assertTrue(PrivateSpace.Uncertain(user = null, serial = SERIAL).offersPadlockRow)
+        // Nothing has ever said there is a space, so there is nothing to offer a padlock for.
+        assertFalse(PrivateSpace.Uncertain(user = null, serial = 0L).offersPadlockRow)
+        assertFalse(PrivateSpace.Absent.offersPadlockRow)
+    }
+
     @Test
     fun `a key is concealed only while its own profile is the locked one`() {
         assertTrue(isConcealed(10L, "$appKey|u10"))
@@ -230,6 +301,63 @@ class PrivateSpaceTest {
             listOf("c", "b|u10"),
             restoreConcealed(listOf("a", "b|u10", "c"), listOf("c"), conceals),
         )
+    }
+
+    // The screens hide with concealsStored and restore with the same predicate. These build
+    // `shown` with a predicate that is WIDER than conceals — which is what an uncertain space
+    // gives them — and then check that nothing at all leaves the store across a reorder, an
+    // add and a remove. Restoring with the narrower `conceals` instead silently drops every
+    // key between the two rules the first time anything is dragged, and the store is what a
+    // screen writes back, so the drop is permanent.
+
+    /** An uncertain space with no serial: everything that names nothing is hidden. */
+    private val unnamedSpace = PrivateSpace.Uncertain(user = null, serial = 0L)
+
+    /** Two keys have rows to draw; the other two do not, for two different reasons. */
+    private fun hidesUnresolved(key: String): Boolean =
+        unnamedSpace.concealsStored(key, resolves = key == "a" || key == "c")
+
+    @Test
+    fun `a key hidden for naming nothing survives a reorder of what is shown`() {
+        val stored = listOf("a", "gone", "c", "b|u10")
+        val shown = stored.filterNot(::hidesUnresolved)
+        assertEquals(listOf("a", "c"), shown)
+
+        assertEquals(
+            listOf("c", "gone", "a", "b|u10"),
+            restoreConcealed(stored, listOf("c", "a"), ::hidesUnresolved),
+        )
+        // And an untouched screen writes back exactly what it was given.
+        assertEquals(stored, restoreConcealed(stored, shown, ::hidesUnresolved))
+    }
+
+    @Test
+    fun `a key hidden for naming nothing survives one being added`() {
+        val stored = listOf("a", "gone", "c", "b|u10")
+        assertEquals(
+            listOf("a", "gone", "c", "b|u10", "new"),
+            restoreConcealed(stored, listOf("a", "c", "new"), ::hidesUnresolved),
+        )
+    }
+
+    @Test
+    fun `a key hidden for naming nothing survives another being removed`() {
+        val stored = listOf("a", "gone", "c", "b|u10")
+        assertEquals(
+            listOf("c", "gone", "b|u10"),
+            restoreConcealed(stored, listOf("c"), ::hidesUnresolved),
+        )
+    }
+
+    @Test
+    fun `restoring by the narrower rule is what loses them`() {
+        // The bug this pins down, stated as the difference between the two predicates: with
+        // `conceals` there is nothing to match "gone" and the reorder reads one key short.
+        val stored = listOf("a", "gone", "c", "b|u10")
+        val shown = stored.filterNot(::hidesUnresolved)
+        val byTheNarrowRule = restoreConcealed(stored, shown, unnamedSpace::conceals)
+        assertFalse("this is the deletion the screens must not perform", "gone" in byTheNarrowRule)
+        assertTrue("and the same rule kept everything", "gone" in restoreConcealed(stored, shown, ::hidesUnresolved))
     }
 
     @Test
