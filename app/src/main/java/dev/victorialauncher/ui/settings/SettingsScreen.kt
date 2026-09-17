@@ -1258,6 +1258,7 @@ private fun searchUrlErrorMessage(reason: SearchUrl.Reason): String? = when (rea
     SearchUrl.Reason.MULTIPLE_PLACEHOLDERS -> stringResource(R.string.search_url_error_multiple_placeholders, "%s")
     SearchUrl.Reason.UNSUPPORTED_SCHEME -> stringResource(R.string.search_url_error_unsupported_scheme)
     SearchUrl.Reason.USERINFO_NOT_ALLOWED -> stringResource(R.string.search_url_error_userinfo)
+    SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY -> stringResource(R.string.search_url_error_percent_in_authority)
     SearchUrl.Reason.MISSING_HOST -> stringResource(R.string.search_url_error_missing_host)
     SearchUrl.Reason.PLACEHOLDER_IN_AUTHORITY -> stringResource(R.string.search_url_error_placeholder_in_authority, "%s")
     SearchUrl.Reason.MALFORMED -> stringResource(R.string.search_url_error_malformed)

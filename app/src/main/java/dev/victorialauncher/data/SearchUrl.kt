@@ -35,6 +35,7 @@ object SearchUrl {
         MULTIPLE_PLACEHOLDERS,
         UNSUPPORTED_SCHEME,
         USERINFO_NOT_ALLOWED,
+        PERCENT_ESCAPE_IN_AUTHORITY,
         MISSING_HOST,
         PLACEHOLDER_IN_AUTHORITY,
         MALFORMED,
@@ -85,6 +86,20 @@ object SearchUrl {
         val rawAuthority = uri.rawAuthority
         if (rawAuthority.isNullOrEmpty()) return Validation.Invalid(Reason.MISSING_HOST)
         if (rawAuthority.contains('@')) return Validation.Invalid(Reason.USERINFO_NOT_ALLOWED)
+
+        // A legitimate search host never needs a percent-escape, and the three parsers that
+        // handle this template in turn disagree about what one means: java.net.URI (right here)
+        // leaves it raw, Android's Uri.getHost() percent-decodes it, and the browser that
+        // finally opens it decodes it and then re-validates — so something like %40 or %2F
+        // sitting in the host could name a different site to each of them. Refusing any '%' in
+        // the authority closes that gap outright rather than trying to enumerate the escapes
+        // that are dangerous. This also catches an IPv6 zone ID (e.g. "[fe80::1%25eth0]"), which
+        // is always introduced by a literal "%25" and has no legitimate use in a search
+        // template. The placeholder itself was already swapped for a letters-only stand-in
+        // above, so this never fires on a %s the user put in the host — that case is still
+        // reported as PLACEHOLDER_IN_AUTHORITY below, not this.
+        if (rawAuthority.contains('%')) return Validation.Invalid(Reason.PERCENT_ESCAPE_IN_AUTHORITY)
+
         val host = if (rawAuthority.startsWith("[")) {
             val closingBracket = rawAuthority.indexOf(']')
             if (closingBracket < 0) rawAuthority else rawAuthority.substring(0, closingBracket + 1)

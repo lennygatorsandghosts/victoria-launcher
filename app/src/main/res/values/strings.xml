@@ -260,6 +260,7 @@
     <string name="search_url_error_multiple_placeholders">Only one %1$s is allowed</string>
     <string name="search_url_error_unsupported_scheme">Must start with https:// or http://</string>
     <string name="search_url_error_userinfo">Can\'t include a username before the address</string>
+    <string name="search_url_error_percent_in_authority">Can\'t include a percent-escape in the site\'s address</string>
     <string name="search_url_error_missing_host">Missing the site\'s address</string>
     <string name="search_url_error_placeholder_in_authority">%1$s can\'t be part of the site\'s address — only the path, query or fragment after it</string>
     <string name="search_url_error_malformed">That doesn\'t look like a valid URL</string>
