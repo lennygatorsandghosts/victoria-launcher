@@ -48,12 +48,21 @@ enum class AzStripVisibility { NEVER, LANDSCAPE, ALWAYS }
 
 private val Context.dataStore by preferencesDataStore(name = "victoria_prefs")
 
-/** Bumped only if the shape of an exported file changes, so an old one can be refused. */
-private const val EXPORT_FORMAT = 1
+/**
+ * Bumped only if the shape of an exported file changes, so an old one can be refused.
+ * Not `private`: [parseSettingsExport] (ImportValidation.kt) checks it too, and a unit test
+ * exercises that check directly.
+ */
+internal const val EXPORT_FORMAT = 1
 
 class Prefs(private val context: Context) {
 
-    private object Keys {
+    /**
+     * Not `private`: [importAllowList] below is built off it directly, and a unit test walks
+     * it reflectively to make sure that list never falls out of sync with a key someone adds
+     * here and forgets to also allow-list -- see the comment on [importAllowList].
+     */
+    internal object Keys {
         val HIDDEN_APPS = stringSetPreferencesKey("hidden_apps")
         val FAVORITES = stringPreferencesKey("favorites_order")
         val FOLDERS = stringPreferencesKey("folders_json")
@@ -118,6 +127,83 @@ class Prefs(private val context: Context) {
         val AZ_BAND_HEIGHT_FRACTION = floatPreferencesKey("az_band_height_fraction")
     }
 
+    companion object {
+        /**
+         * The allow-list [importJson] restores against: every real preference name, and the
+         * type it's declared with above. Written out by hand rather than derived from [Keys]
+         * at runtime, because a `Preferences.Key<T>`'s `T` is erased -- there is no way to ask
+         * an existing key instance for its own type tag. Kept honest by
+         * `ImportValidationTest`'s "every declared preference key is covered by the import
+         * allow-list" test, which walks [Keys] via reflection and fails if a name is missing
+         * here, so an added-and-forgotten key shows up as a test failure rather than as a
+         * setting that silently stops restoring.
+         */
+        internal val importAllowList: Map<String, ExpectedType> = mapOf(
+            Keys.HIDDEN_APPS.name to ExpectedType.STRING_SET,
+            Keys.FAVORITES.name to ExpectedType.STRING,
+            Keys.FOLDERS.name to ExpectedType.STRING,
+            Keys.NAME_OVERRIDES.name to ExpectedType.STRING,
+            Keys.ICON_OVERRIDES.name to ExpectedType.STRING,
+            Keys.ICON_SIZE_DP.name to ExpectedType.INT,
+            Keys.LABEL_SIZE_SP.name to ExpectedType.INT,
+            Keys.ITEM_SPACING_DP.name to ExpectedType.INT,
+            Keys.SIDE_PADDING_DP.name to ExpectedType.INT,
+            Keys.NOW_PLAYING_HEIGHT_DP.name to ExpectedType.INT,
+            Keys.NOW_PLAYING_PAD_TOP.name to ExpectedType.INT,
+            Keys.NOW_PLAYING_PAD_BOTTOM.name to ExpectedType.INT,
+            Keys.WIDGET_PAD_TOP.name to ExpectedType.INT,
+            Keys.WIDGET_PAD_BOTTOM.name to ExpectedType.INT,
+            Keys.FAVORITES_PAD_TOP.name to ExpectedType.INT,
+            Keys.FAVORITES_PAD_BOTTOM.name to ExpectedType.INT,
+            Keys.FONT.name to ExpectedType.STRING,
+            Keys.FONT_FILE.name to ExpectedType.STRING,
+            Keys.TEXT_COLOR_CUSTOM.name to ExpectedType.INT,
+            Keys.DIM_COLOR.name to ExpectedType.INT,
+            Keys.ALLOW_ROTATION.name to ExpectedType.BOOLEAN,
+            Keys.THEMED_ICONS.name to ExpectedType.BOOLEAN,
+            Keys.ICON_SHAPE.name to ExpectedType.STRING,
+            Keys.HIDE_STATUS_BAR.name to ExpectedType.BOOLEAN,
+            Keys.HIDE_STATUS_BAR_APPLIST.name to ExpectedType.BOOLEAN,
+            Keys.DIM_WALLPAPER_ALPHA.name to ExpectedType.FLOAT,
+            Keys.HAPTICS_ENABLED.name to ExpectedType.BOOLEAN,
+            Keys.DIM_HOME_ALPHA.name to ExpectedType.FLOAT,
+            Keys.SHOW_FAVORITE_LABELS.name to ExpectedType.BOOLEAN,
+            Keys.TEXT_COLOR_MODE.name to ExpectedType.STRING,
+            Keys.DOUBLE_TAP_TO_LOCK.name to ExpectedType.BOOLEAN,
+            Keys.EDGE_SIDE.name to ExpectedType.STRING,
+            Keys.ALWAYS_SHOW_AZ.name to ExpectedType.BOOLEAN,
+            Keys.AZ_STRIP_VISIBILITY.name to ExpectedType.STRING,
+            Keys.SHOW_ALPHABET.name to ExpectedType.BOOLEAN,
+            Keys.ALIGN_RIGHT.name to ExpectedType.BOOLEAN,
+            Keys.ICON_PACK_PACKAGE.name to ExpectedType.STRING,
+            Keys.NOW_PLAYING_ENABLED.name to ExpectedType.BOOLEAN,
+            Keys.WIDGET_ID.name to ExpectedType.INT,
+            Keys.WIDGET_POSITION.name to ExpectedType.INT,
+            Keys.WIDGET_HEIGHT_DP.name to ExpectedType.INT,
+            Keys.WIDGET_IDS.name to ExpectedType.STRING,
+            Keys.WIDGET_SIDE_PADDING_DP.name to ExpectedType.INT,
+            Keys.WIDGET_OFFSET_X_DP.name to ExpectedType.INT,
+            Keys.SWIPE_UP_OPENS_LIST.name to ExpectedType.BOOLEAN,
+            Keys.APPLIST_SEARCH_ENABLED.name to ExpectedType.BOOLEAN,
+            Keys.APPLIST_SEARCH_BOTTOM.name to ExpectedType.BOOLEAN,
+            Keys.APPLIST_SEARCH_HIDDEN.name to ExpectedType.BOOLEAN,
+            Keys.SORT_BY_USAGE.name to ExpectedType.BOOLEAN,
+            Keys.LAUNCH_COUNTS.name to ExpectedType.STRING,
+            Keys.EDGE_ZONE_WIDTH_DP.name to ExpectedType.INT,
+            Keys.QUICK_LAUNCH_LEFT.name to ExpectedType.STRING,
+            Keys.QUICK_LAUNCH_RIGHT.name to ExpectedType.STRING,
+            Keys.LAYOUT_DEFAULTS_VERSION.name to ExpectedType.INT,
+            Keys.WELCOME_SEEN.name to ExpectedType.BOOLEAN,
+            Keys.SHOW_APP_ICONS.name to ExpectedType.BOOLEAN,
+            Keys.ALIGNMENT.name to ExpectedType.STRING,
+            Keys.APPLIST_ALIGNMENT.name to ExpectedType.STRING,
+            Keys.ICON_SIDE.name to ExpectedType.STRING,
+            Keys.STATUS_BAR_PEEK_SECONDS.name to ExpectedType.INT,
+            Keys.AZ_BAND_TOP_FRACTION.name to ExpectedType.FLOAT,
+            Keys.AZ_BAND_HEIGHT_FRACTION.name to ExpectedType.FLOAT,
+        )
+    }
+
     /** Every padding a user can set by hand; their presence is what retires the first-run layout. */
     private val padKeys = listOf(
         Keys.NOW_PLAYING_PAD_TOP,
@@ -166,44 +252,29 @@ class Prefs(private val context: Context) {
     }
 
     /**
-     * Replaces every setting with the ones in [text]. Returns false if it is not ours.
+     * Replaces every setting with the ones in [text]. Returns false if it is not recognizable
+     * as ours, or if nothing in it could be trusted enough to write.
      *
-     * Parsed fully before anything is written: a half-read file that had already cleared the
-     * store would leave someone with neither their old set-up nor the one they were restoring.
+     * Parsing and every validation step happen in [parseSettingsExport] -- entirely before
+     * this touches the store, for the same reason as before: a half-read file that had already
+     * cleared the store would leave someone with neither their old set-up nor the one they were
+     * restoring. Pulling that out into a top-level pure function is what makes it possible to
+     * unit-test the hostile-input handling (oversize files, wrong types, malformed embedded
+     * JSON, deliberately nested garbage) under a plain JVM test, with no DataStore or Context
+     * needed, against `org.json` the same way the rest of this file already does.
+     *
+     * A name in the file that isn't a preference this build declares is dropped rather than
+     * failing the import -- see [Keys]/[importAllowList] -- and every key absent from the file
+     * entirely is still cleared by `store.clear()` below, unchanged from before: an import is a
+     * restore, not a merge, and a file that omits a setting is choosing its default, not asking
+     * to keep whatever this device already had.
      */
     suspend fun importJson(text: String): Boolean {
-        val parsed = runCatching {
-            val root = JSONObject(text)
-            if (root.optInt("format") != EXPORT_FORMAT) return false
-            val values = root.getJSONObject("values")
-            buildList {
-                values.keys().forEach { name ->
-                    val entry = values.getJSONObject(name)
-                    // Pair(...) rather than `to`: DataStore has an infix `to` of its own on
-                    // Key, which builds a Preferences.Pair and not the one wanted here.
-                    val pair: Pair<Preferences.Key<*>, Any> = when (entry.getString("type")) {
-                        "boolean" -> Pair(booleanPreferencesKey(name), entry.getBoolean("value"))
-                        "int" -> Pair(intPreferencesKey(name), entry.getInt("value"))
-                        "long" -> Pair(longPreferencesKey(name), entry.getLong("value"))
-                        "float" -> Pair(floatPreferencesKey(name), entry.getDouble("value").toFloat())
-                        "string" -> Pair(stringPreferencesKey(name), entry.getString("value"))
-                        "stringSet" -> {
-                            val array = entry.getJSONArray("value")
-                            Pair(
-                                stringSetPreferencesKey(name),
-                                (0 until array.length()).map { array.getString(it) }.toSet(),
-                            )
-                        }
-                        else -> return@forEach
-                    }
-                    add(pair)
-                }
-            }
-        }.getOrNull() ?: return false
+        val parsed = parseSettingsExport(text, importAllowList) ?: return false
 
         context.dataStore.edit { store ->
             store.clear()
-            parsed.forEach { (key, value) ->
+            parsed.values.forEach { (key, value) ->
                 @Suppress("UNCHECKED_CAST")
                 store[key as Preferences.Key<Any>] = value
             }
