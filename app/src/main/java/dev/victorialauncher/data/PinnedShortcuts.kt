@@ -14,6 +14,15 @@ package dev.victorialauncher.data
  */
 object PinnedShortcuts {
 
+    /** A fresh read of a package's pins is trusted only if every id known to be pinned is in it. */
+    fun readLooksComplete(current: Collection<String>, knownPinned: Collection<String>): Boolean =
+        current.containsAll(knownPinned)
+
+    fun withAdded(current: List<String>, id: String): List<String> {
+        val unique = current.distinct()
+        return if (id in unique) unique else unique + id
+    }
+
     fun remainingIds(
         pinned: List<EntryKeys.ShortcutRef>,
         removed: EntryKeys.ShortcutRef,

@@ -59,6 +59,7 @@ import dev.victorialauncher.data.MAX_IMPORT_FILE_BYTES
 import dev.victorialauncher.data.ParsedExport
 import dev.victorialauncher.data.QuickLaunchSlot
 import dev.victorialauncher.data.SearchUrl
+import dev.victorialauncher.data.ShortcutCandidate
 import dev.victorialauncher.data.TextColorMode
 import dev.victorialauncher.data.effectiveActions
 import androidx.compose.ui.res.stringResource
@@ -69,6 +70,7 @@ import dev.victorialauncher.media.isListenerEnabled
 import dev.victorialauncher.service.SystemUi
 import dev.victorialauncher.ui.applist.AppListModel
 import dev.victorialauncher.ui.applist.buildAppListModel
+import dev.victorialauncher.ui.button.AppShortcutsSection
 import dev.victorialauncher.ui.button.ButtonActionPickerScreen
 import dev.victorialauncher.ui.button.actionLabel
 import dev.victorialauncher.ui.common.IconPickerScreen
@@ -928,6 +930,10 @@ fun VictoriaNavHost(
                     )
                 }
             }
+            val shortcutCandidates by produceState(initialValue = emptyList<ShortcutCandidate>(), slot) {
+                value = withContext(Dispatchers.IO) { app.appRepository.listShortcutsForAction() }
+            }
+            val currentAction = vbuttonActions[slot] ?: ButtonAction.None
             ButtonActionPickerScreen(
                 title = when (slot) {
                     ButtonSlot.TAP -> stringResource(R.string.vicky_button_edit_tap)
@@ -935,7 +941,7 @@ fun VictoriaNavHost(
                     ButtonSlot.SWIPE_LEFT -> stringResource(R.string.vicky_button_edit_swipe_left)
                     ButtonSlot.SWIPE_RIGHT -> stringResource(R.string.vicky_button_edit_swipe_right)
                 },
-                current = vbuttonActions[slot] ?: ButtonAction.None,
+                current = currentAction,
                 model = pickerModel,
                 nameOverrides = nameOverrides,
                 iconSizeDp = iconSizeDp,
@@ -945,6 +951,30 @@ fun VictoriaNavHost(
                     navController.popBackStack()
                 },
                 onBack = { navController.popBackStack() },
+                appShortcutsSection = {
+                    AppShortcutsSection(
+                        candidates = shortcutCandidates,
+                        current = currentAction,
+                        onPick = { candidate ->
+                            scope.launch {
+                                val knownPinned = shortcutCandidates
+                                    .filter { it.isPinned && it.packageName == candidate.packageName && it.user == candidate.user }
+                                    .map { it.shortcutId }
+                                val key = app.appRepository.pinForAction(candidate, knownPinned)
+                                if (key == null) {
+                                    Toast.makeText(
+                                        context,
+                                        R.string.button_picker_shortcut_pin_failed,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else {
+                                    app.prefs.setVButtonAction(slot, ButtonAction.LaunchEntry(key).encode())
+                                    navController.popBackStack()
+                                }
+                            }
+                        },
+                    )
+                },
             )
         }
 

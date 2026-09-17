@@ -112,6 +112,8 @@
     <string name="vicky_button_edit_swipe_up">Edit swipe up action</string>
     <string name="vicky_button_edit_swipe_left">Edit swipe left action</string>
     <string name="vicky_button_edit_swipe_right">Edit swipe right action</string>
+    <string name="button_picker_app_shortcuts">App shortcuts</string>
+    <string name="button_picker_shortcut_pin_failed">Could not pin that shortcut</string>
     <string name="settings_search_bar">Search bar in the app list</string>
     <string name="settings_search_bar_detail">A box for filtering the list by name</string>
     <string name="settings_search_bar_bottom">Search bar at the bottom</string>
