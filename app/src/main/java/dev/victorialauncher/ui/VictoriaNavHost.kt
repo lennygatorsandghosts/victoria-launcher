@@ -69,14 +69,15 @@ import dev.victorialauncher.ui.theme.rememberContentColor
 import dev.victorialauncher.widget.WidgetPickerActivity
 import dev.victorialauncher.widget.WidgetSlotActions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
-/** How long the import launcher waits on a SAF read before giving up on it (SEC-L8). */
+/** How long the import launcher waits on a SAF read before giving up on it. */
 private const val IMPORT_READ_TIMEOUT_MS = 10_000L
 
 /**
@@ -88,12 +89,11 @@ private const val IMPORT_READ_TIMEOUT_MS = 10_000L
  * [dev.victorialauncher.data.parseSettingsExport], checks the same cap again on the resulting
  * String as a backstop for any other caller.
  *
- * The byte cap only ever fires once enough bytes have actually arrived (SEC-L8) -- a SAF
- * provider that neither writes to the pipe nor closes it leaves [InputStream.read] blocked with
- * nothing to time out on its own, which is why the caller below wraps this in
- * `runInterruptible` rather than relying on a plain `withTimeoutOrNull` (a suspend-level
- * cancellation cannot interrupt a call already blocked inside the JVM). Not `private`: a JVM
- * test exercises this directly against a stream that never yields a byte.
+ * The byte cap only ever fires once enough bytes have actually arrived -- a SAF provider that
+ * neither writes to the pipe nor closes it leaves [InputStream.read] blocked with nothing to
+ * time out on its own. Nothing in this function can do anything about that; see
+ * [readBoundedUtf8WithTimeout] for how the caller bounds it from outside instead. Not
+ * `private`: a JVM test exercises this directly against a stream that never yields a byte.
  */
 internal fun readBoundedUtf8(stream: InputStream, maxBytes: Int): String? {
     val buffer = ByteArrayOutputStream()
@@ -108,6 +108,40 @@ internal fun readBoundedUtf8(stream: InputStream, maxBytes: Int): String? {
     }
     return String(buffer.toByteArray(), Charsets.UTF_8)
 }
+
+/**
+ * Runs [readBoundedUtf8] against [stream], but doesn't wait on it forever: once [timeoutMs]
+ * elapses with no result, this closes [stream] out from under whatever is still blocked inside
+ * [InputStream.read] and treats the import as failed.
+ *
+ * Closing the stream, not cancelling a coroutine, is what actually unblocks a stalled SAF
+ * read: such a stream is typically backed by a pipe the content provider writes into, and a
+ * blocking read on a pipe sits inside a native call that neither structured-concurrency
+ * cancellation nor `Thread.interrupt()` reaches -- an earlier version of this function relied
+ * on `runInterruptible` for exactly that and it never fired, because interrupting the waiting
+ * coroutine does nothing to the read that is actually blocked. Closing the underlying file
+ * descriptor does reach it. So the read runs as its own coroutine on [Dispatchers.IO], left
+ * running if the timeout elapses first; this function then closes [stream] and waits for that
+ * coroutine to actually finish -- which it now will, one way or another -- before returning,
+ * so the stream is never left mid-read when this function hands control back. A read that
+ * fails because the stream was closed out from under it is the expected shape of a timeout,
+ * not a new error, so it's treated the same as any other failed or oversize read: null.
+ *
+ * Always closes [stream] itself on every path, including a normal read that finishes in time,
+ * so the caller doesn't need its own `use {}` around it.
+ */
+internal suspend fun readBoundedUtf8WithTimeout(stream: InputStream, maxBytes: Int, timeoutMs: Long): String? =
+    coroutineScope {
+        val readJob = async(Dispatchers.IO) { runCatching { readBoundedUtf8(stream, maxBytes) }.getOrNull() }
+        // A null here is ambiguous -- it means either "timed out" or "the read finished in
+        // time but the file was oversize/unreadable" -- so both paths close the stream and
+        // join the read job the same way; when the read already finished, closing and joining
+        // are both immediate.
+        val result = withTimeoutOrNull(timeoutMs) { readJob.await() }
+        runCatching { stream.close() }
+        readJob.join()
+        result
+    }
 
 /**
  * Collects the stored settings once and hosts the navigation graph.
@@ -311,16 +345,8 @@ fun VictoriaNavHost(
         scope.launch {
             val text = withContext(Dispatchers.IO) {
                 runCatching {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        // SEC-L8: a provider that never writes or closes would otherwise block
-                        // this read forever. runInterruptible gives the timeout a real thread
-                        // interrupt to cancel with; `use`'s own finally block still closes the
-                        // stream once this returns, which backs that up for a provider whose
-                        // read() ignores the interrupt (closing it tends to unblock the read).
-                        withTimeoutOrNull(IMPORT_READ_TIMEOUT_MS) {
-                            runInterruptible(Dispatchers.IO) { readBoundedUtf8(stream, MAX_IMPORT_FILE_BYTES) }
-                        }
-                    }
+                    val stream = context.contentResolver.openInputStream(uri) ?: return@runCatching null
+                    readBoundedUtf8WithTimeout(stream, MAX_IMPORT_FILE_BYTES, IMPORT_READ_TIMEOUT_MS)
                 }.getOrNull()
             }
             val ok = text != null && app.prefs.importJson(text)
