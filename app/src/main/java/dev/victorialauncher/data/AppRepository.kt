@@ -14,6 +14,8 @@ import android.os.UserManager
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.provider.Settings
+import androidx.core.content.ContextCompat
+import dev.victorialauncher.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -30,7 +32,8 @@ class AppRepository(
         get() = context.getSystemService(UserManager::class.java)
 
     /**
-     * Every launchable activity across every profile the launcher can see.
+     * Every launchable activity across every profile the launcher can see, plus the search row
+     * if one is configured.
      *
      * LauncherApps rather than PackageManager, because queryIntentActivities only ever sees
      * the profile we are running in — a work profile or a private space is invisible to it.
@@ -39,10 +42,13 @@ class AppRepository(
      *
      * A locked private space simply drops out of getUserProfiles, so its apps disappear from
      * the list until it is unlocked. That is the intended behavior, not a failure to handle.
+     *
+     * [searchUrlTemplate] is whatever is stored for the search button, unvalidated — the row
+     * is only appended once it actually [SearchUrl.validate]s, so a half-typed template in
+     * Settings simply leaves the row absent rather than present and broken.
      */
-    fun queryAllApps(): List<AppInfo> {
-        val profiles = runCatching { userManager.userProfiles }.getOrNull().orEmpty()
-        return profiles
+    fun queryAllApps(searchUrlTemplate: String = "", searchLabel: String = ""): List<AppInfo> {
+        val apps = runCatching { userManager.userProfiles }.getOrNull().orEmpty()
             .flatMap { user ->
                 val serial = runCatching { userManager.getSerialNumberForUser(user) }.getOrDefault(0L)
                 // Asking about a profile we are not the launcher for throws rather than
@@ -66,10 +72,25 @@ class AppRepository(
             .filterNot { it.componentName.packageName == context.packageName }
             .distinctBy { it.key }
             .sortedBy { it.label.lowercase() }
+
+        if (SearchUrl.validate(searchUrlTemplate) !is SearchUrl.Validation.Ok) return apps
+
+        val label = searchLabel.trim().ifEmpty { context.getString(R.string.search_entry_default_label) }
+        return apps + AppInfo(
+            componentName = ComponentName(context.packageName, "search"),
+            label = label,
+            kind = EntryKind.SEARCH,
+        )
     }
 
     /** Badged by the system, so a work or private-space app is recognizable at a glance. */
     fun loadIcon(app: AppInfo): Drawable {
+        // Not backed by any installed package, so there is nothing for LauncherApps or
+        // PackageManager to look up — an adaptive icon of our own, drawn the same shape as
+        // everything else so it does not stand out among real app icons.
+        if (app.kind == EntryKind.SEARCH) {
+            return ContextCompat.getDrawable(context, R.drawable.ic_search_entry) ?: pm.defaultActivityIcon
+        }
         val user = app.user
         if (user != null) {
             val activity = runCatching {
@@ -98,20 +119,24 @@ class AppRepository(
     // answer is kept.
     private val englishLabels = mutableMapOf<String, String?>()
 
-    /** The app's name in English, or null if it has none or it is the name we already have. */
-    fun englishLabel(app: AppInfo): String? = englishLabels.getOrPut(app.key) {
-        runCatching {
-            val info = pm.getActivityInfo(app.componentName, 0)
-            val labelRes = if (info.labelRes != 0) info.labelRes else info.applicationInfo.labelRes
-            if (labelRes == 0) return@runCatching null
-            val res = pm.getResourcesForApplication(info.applicationInfo)
-            val config = Configuration(res.configuration).apply { setLocale(Locale.ENGLISH) }
-            res.getString(labelRes).takeIf { it.isNotBlank() }?.let { english ->
-                // The context-adjusted resources fall back to the default language when an app
-                // ships no English, which just hands the same name back.
-                Resources(res.assets, res.displayMetrics, config).getString(labelRes)
-            }
-        }.getOrNull()
+    /** The app's name in English, or null if it has none, it is a non-app row, or it is the name we already have. */
+    fun englishLabel(app: AppInfo): String? {
+        // No APK resources to re-query in another language for a row that isn't an app.
+        if (app.kind != EntryKind.APP) return null
+        return englishLabels.getOrPut(app.key) {
+            runCatching {
+                val info = pm.getActivityInfo(app.componentName, 0)
+                val labelRes = if (info.labelRes != 0) info.labelRes else info.applicationInfo.labelRes
+                if (labelRes == 0) return@runCatching null
+                val res = pm.getResourcesForApplication(info.applicationInfo)
+                val config = Configuration(res.configuration).apply { setLocale(Locale.ENGLISH) }
+                res.getString(labelRes).takeIf { it.isNotBlank() }?.let { english ->
+                    // The context-adjusted resources fall back to the default language when an
+                    // app ships no English, which just hands the same name back.
+                    Resources(res.assets, res.displayMetrics, config).getString(labelRes)
+                }
+            }.getOrNull()
+        }
     }
 
     /** Returns false if the app could not be started, so callers can undo whatever they hid. */
@@ -142,6 +167,10 @@ class AppRepository(
     }
 
     fun openAppInfo(app: AppInfo) {
+        // No package backs a non-app row, so there is no settings screen to show. The menus
+        // already hide this action for anything but an app; this is the same rule kept here
+        // too, so a call that reaches this far cannot open Settings on the launcher itself.
+        if (app.kind != EntryKind.APP) return
         val user = app.user
         if (user != null) {
             val shown = runCatching {
