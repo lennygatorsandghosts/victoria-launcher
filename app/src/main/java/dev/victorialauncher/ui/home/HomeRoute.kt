@@ -761,6 +761,7 @@ fun HomeRoute(
                         try {
                             context.startActivity(
                                 Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    .addCategory(Intent.CATEGORY_BROWSABLE)
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             )
                             scope.launch { app.prefs.incrementLaunchCount(entry.key) }

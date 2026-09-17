@@ -145,6 +145,12 @@ class SearchEntryTest {
             assertNotNull("expected the search dialog to have started a VIEW activity", firedIntent)
             assertEquals(Intent.ACTION_VIEW, firedIntent!!.action)
             assertEquals(expectedUrl, firedIntent.dataString)
+            // SEC-L4: only an activity that declares itself a browsable handler should be a
+            // candidate for this VIEW intent.
+            assertTrue(
+                "expected CATEGORY_BROWSABLE on the fired intent",
+                firedIntent.categories?.contains(Intent.CATEGORY_BROWSABLE) == true,
+            )
         } finally {
             instrumentation.removeMonitor(monitor)
         }
