@@ -18,6 +18,7 @@
     <string name="action_open_settings">Vicky+ settings</string>
     <string name="action_remove_shortcut">Remove shortcut</string>
     <string name="action_import">Import</string>
+    <string name="action_apply">Apply</string>
 
     <!-- Home screen -->
     <string name="home_drag_handle">Reorder</string>
@@ -78,6 +79,9 @@
     <string name="settings_icon_pack_no_icons">None</string>
     <string name="settings_icon_pack_none">No icon pack apps found on this device.</string>
     <string name="settings_icon_size">Icon size</string>
+    <string name="settings_niagara_apply">Apply Niagara style</string>
+    <string name="settings_niagara_apply_detail">Small icons, large labels, tight rows and an always-visible A-Z strip</string>
+    <string name="settings_niagara_confirm_message">This will set 26dp icons, 18sp labels, the tightest favorite spacing, left alignment on the home screen and app list, and an always-visible A-Z strip.</string>
     <string name="settings_text_size">Text size</string>
     <string name="settings_favorite_spacing">Spacing between favorites</string>
     <string name="settings_font">Font</string>
@@ -223,6 +227,9 @@
     <string name="welcome_widget">Swipe in from either edge of the screen for all your apps, and slide along the A-Z strip to jump to a letter.</string>
     <string name="welcome_layout">Edit layout lets you move things around and set the spacing.</string>
     <string name="welcome_got_it">Got it</string>
+    <string name="niagara_title">Niagara style</string>
+    <string name="niagara_offer_message">Niagara style sets small icons, large labels, tight rows and an always-visible alphabet strip. You can apply it now, or later from Settings.</string>
+    <string name="niagara_not_now">Not now</string>
 
     <!-- Widgets -->
     <string name="widget_add">Add widget</string>

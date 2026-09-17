@@ -133,6 +133,9 @@ fun HomeRoute(
     launchCounts: Map<String, Int>,
     showWelcome: Boolean,
     onWelcomeDismissed: () -> Unit,
+    showNiagaraOffer: Boolean,
+    onApplyNiagaraOffer: () -> Unit,
+    onDismissNiagaraOffer: () -> Unit,
     scrubBandFractions: Pair<Float, Float>?,
     onSetScrubBand: (Float, Float) -> Unit,
     onClearScrubBand: () -> Unit,
@@ -757,6 +760,11 @@ fun HomeRoute(
 
         if (showWelcome) {
             WelcomeDialog(onDismiss = onWelcomeDismissed)
+        } else if (showNiagaraOffer) {
+            NiagaraOfferDialog(
+                onApply = onApplyNiagaraOffer,
+                onNotNow = onDismissNiagaraOffer,
+            )
         }
 
         folderPickerFor?.let { target ->

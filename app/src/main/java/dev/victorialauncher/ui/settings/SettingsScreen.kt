@@ -135,6 +135,7 @@ fun SettingsScreen(
     onSetIconSize: (Int) -> Unit,
     onSetLabelSize: (Int) -> Unit,
     onSetItemSpacing: (Int) -> Unit,
+    onApplyNiagaraPreset: () -> Unit,
     onSetFont: (AppFont) -> Unit,
     statusBarPeekSeconds: Int,
     onSetHideStatusBar: (Boolean) -> Unit,
@@ -191,6 +192,7 @@ fun SettingsScreen(
     // first composition, and again when the stored setting arrived and replaced the initial
     // one — so opening settings flashed a preview nobody asked for.
     var edgePreviewTick by remember { mutableIntStateOf(0) }
+    var showNiagaraConfirm by remember { mutableStateOf(false) }
     LaunchedEffect(edgePreviewTick) {
         if (edgePreviewTick == 0) return@LaunchedEffect
         edgePreviewShown = true
@@ -240,10 +242,16 @@ fun SettingsScreen(
                         onSetThemedIcons,
                     )
                     RowDivider()
+                    ClickRow(
+                        label = stringResource(R.string.settings_niagara_apply),
+                        detail = stringResource(R.string.settings_niagara_apply_detail),
+                        onClick = { showNiagaraConfirm = true },
+                    )
+                    RowDivider()
                     SliderRow(
                         label = stringResource(R.string.settings_icon_size),
                         value = iconSizeDp.toFloat(),
-                        range = 32f..96f,
+                        range = 20f..96f,
                         valueLabel = "${iconSizeDp}dp",
                         onValueChange = { onSetIconSize(it.toInt()) },
                     )
@@ -602,6 +610,28 @@ fun SettingsScreen(
             }
         }
     }
+        if (showNiagaraConfirm) {
+            AlertDialog(
+                onDismissRequest = { showNiagaraConfirm = false },
+                title = { Text(stringResource(R.string.niagara_title)) },
+                text = { Text(stringResource(R.string.settings_niagara_confirm_message)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showNiagaraConfirm = false
+                            onApplyNiagaraPreset()
+                        },
+                    ) {
+                        Text(stringResource(R.string.action_apply))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showNiagaraConfirm = false }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                },
+            )
+        }
         if (edgePreviewAlpha > 0f) {
             val stripe = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f * edgePreviewAlpha)
             if (edgeSide != EdgeSide.RIGHT) {
@@ -654,6 +684,31 @@ private fun SectionLabel(text: String) {
 @Composable
 private fun RowDivider() {
     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), modifier = Modifier.padding(horizontal = 16.dp))
+}
+
+@Composable
+private fun ClickRow(label: String, detail: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowForwardIos,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+        )
+    }
 }
 
 @Composable
