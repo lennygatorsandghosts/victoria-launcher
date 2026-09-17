@@ -146,7 +146,6 @@ private val MIN_ROW_HEIGHT = 48.dp
 private val STRIP_INSET = 56.dp
 
 /** Sets the settings shortcut apart from the last app above it. */
-private val SETTINGS_ROW_GAP = 20.dp
 
 /**
  * Widest the list is allowed to get.
@@ -428,7 +427,7 @@ fun AppListScreen(
     fun forwardRoom(): Float {
         val info = listState.layoutInfo
         val last = info.visibleItemsInfo.lastOrNull() ?: return Float.MAX_VALUE
-        if (last.index < displayModel.rows.size) return Float.MAX_VALUE
+        if (last.index < displayModel.rows.lastIndex) return Float.MAX_VALUE
         val bottom = (last.offset - info.viewportStartOffset + last.size).toFloat()
         return bottom + idleBottomPaddingPx - viewportHeightPx
     }
@@ -442,7 +441,7 @@ fun AppListScreen(
     fun placementSettled(): Boolean {
         val items = listState.layoutInfo.visibleItemsInfo
         val first = items.firstOrNull() ?: return true
-        if (first.index == 0 && items.last().index >= displayModel.rows.size) return true
+        if (first.index == 0 && items.last().index >= displayModel.rows.lastIndex) return true
         return topGapRemaining() <= 0f
     }
 
@@ -919,43 +918,7 @@ fun AppListScreen(
                 }
             }
 
-            // Settings shortcut, pinned after Z.
-            item(key = "settings", contentType = "settings") {
-                // Set apart from the apps above it: it is the one row here that is not one.
-                Spacer(Modifier.height(SETTINGS_ROW_GAP))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer { alpha = othersAlpha }
-                        .clickable(onClick = onOpenSettings)
-                        .heightIn(min = MIN_ROW_HEIGHT)
-                        .padding(horizontal = 28.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = when (alignment) {
-                        HomeAlignment.LEFT -> Arrangement.Start
-                        HomeAlignment.CENTER -> Arrangement.Center
-                        HomeAlignment.RIGHT -> Arrangement.End
-                    },
-                ) {
-                    if (alignment == HomeAlignment.RIGHT) {
-                        Text(
-                            stringResource(R.string.action_open_settings),
-                            color = contentColor.copy(alpha = 0.8f),
-                            fontSize = labelSizeSp.sp,
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        Icon(Icons.Filled.Settings, contentDescription = null, tint = contentColor.copy(alpha = 0.8f))
-                    } else {
-                        Icon(Icons.Filled.Settings, contentDescription = null, tint = contentColor.copy(alpha = 0.8f))
-                        Spacer(Modifier.width(16.dp))
-                        Text(
-                            stringResource(R.string.action_open_settings),
-                            color = contentColor.copy(alpha = 0.8f),
-                            fontSize = labelSizeSp.sp,
-                        )
-                    }
-                }
-            }
+        }
         }
         }
 

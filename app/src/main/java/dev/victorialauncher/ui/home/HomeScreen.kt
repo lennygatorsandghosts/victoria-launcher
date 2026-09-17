@@ -590,6 +590,9 @@ fun HomeScreen(
                 HomeHeader(
                     contentColor = contentColor,
                     sidePaddingDp = sidePaddingDp,
+                    // The column draws under the status bar, so with the favorites at the top
+                    // of the screen the date sat behind the clock.
+                    modifier = Modifier.statusBarsPadding(),
                 )
             }
 

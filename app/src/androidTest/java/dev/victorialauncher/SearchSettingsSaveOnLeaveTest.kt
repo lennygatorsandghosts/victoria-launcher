@@ -66,9 +66,9 @@ class SearchSettingsSaveOnLeaveTest {
         val urlFieldLabel = instrumentation.targetContext.getString(R.string.settings_search_button_url)
 
         LauncherTestUtils.openAppList()
-        // A query nothing installed matches leaves only the pinned Settings row on screen —
-        // reachable without scrolling however many apps happen to be on this device.
-        LauncherTestUtils.filterAppList("zzz-no-such-app-zzz")
+        // Filtering by its own label leaves the "Vicky+ settings" row of the Vicky+ section on
+        // screen — reachable without scrolling however many apps happen to be on this device.
+        LauncherTestUtils.filterAppList(settingsLabel)
         assertTrue("expected the Settings row", LauncherTestUtils.waitForText(settingsLabel))
         device.findObject(By.text(settingsLabel)).click()
 
