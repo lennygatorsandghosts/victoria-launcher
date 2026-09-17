@@ -52,9 +52,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import dev.victorialauncher.TypedKey
 import dev.victorialauncher.VictoriaApp
 import dev.victorialauncher.data.AppInfo
+import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.AzStripVisibility
 import dev.victorialauncher.data.EdgeSide
-import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.Folder
@@ -137,6 +137,8 @@ fun HomeRoute(
     onClearScrubBand: () -> Unit,
     onPeekStatusBar: () -> Unit,
     onAppListVisibleChange: (Boolean) -> Unit,
+    /** Locks an open private space or asks for a locked one to be opened, off this thread. */
+    onTogglePrivateSpace: () -> Unit,
     onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -209,12 +211,24 @@ fun HomeRoute(
     // Every row's tap ends up here. A search row has no activity to start — it asks for a
     // query instead — so it is the one kind kept out of AppRepository.launch() entirely,
     // rather than reaching it and failing to launch our own package.
-    fun launchEntry(entry: AppInfo): Boolean {
-        if (entry.kind == EntryKind.SEARCH) {
+    // Every kind is named and there is no else, so a kind added later cannot fall through to
+    // being started like an app: the compiler stops here until someone has said what a press
+    // on it does.
+    fun launchEntry(entry: AppInfo): Boolean = when (entry.kind) {
+        EntryKind.APP, EntryKind.SHORTCUT -> app.appRepository.launch(entry)
+        // The dialog that asks for the query is what comes next; nothing is started yet.
+        EntryKind.SEARCH -> {
             searchEntry = entry
-            return true
+            true
         }
-        return app.appRepository.launch(entry)
+        // Handed off rather than done here: locking or unlocking is several binder calls and
+        // possibly the system's own authentication screen, which is not a press's work to do
+        // on the main thread. True because the press was acted on — there is simply nothing
+        // coming to the foreground to wait for.
+        EntryKind.PRIVATE_SPACE -> {
+            onTogglePrivateSpace()
+            true
+        }
     }
 
     val nowPlaying by NowPlayingBus.state.collectAsState()
@@ -323,6 +337,9 @@ fun HomeRoute(
         }
     }
 
+    // The one place a row press is turned into something happening. Every row in the launcher
+    // arrives here, so a row that is not an app is recognised once, here, rather than in each
+    // of the four places a press is wired up.
     LaunchedEffect(settings.edgeSide) { scrub.syncRestingSide(settings.edgeSide) }
 
     // BACK on the home screen must do nothing whatsoever.
@@ -655,8 +672,14 @@ fun HomeRoute(
                         closeAppList()
                         launchEntry(appInfo)
                     } else {
-                        // A launch that never got off the ground leaves nothing to wait for.
-                        if (launchEntry(appInfo)) closeAfterLaunch() else closeAppList()
+                        // A launch that never got off the ground leaves nothing to wait for,
+                        // and the private-space row has nothing coming to the foreground
+                        // either — it changes what this very list holds, so it wants the
+                        // list out of the way.
+                        val acted = launchEntry(appInfo)
+                        val takesTheScreen =
+                            appInfo.kind == EntryKind.APP || appInfo.kind == EntryKind.SHORTCUT
+                        if (acted && takesTheScreen) closeAfterLaunch() else closeAppList()
                     }
                 },
                 onSetFavorite = { appInfo, add ->

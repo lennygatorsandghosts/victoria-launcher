@@ -31,8 +31,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -42,6 +45,8 @@ import android.widget.Toast
 import dev.victorialauncher.data.IconShape
 import dev.victorialauncher.data.AppFont
 import dev.victorialauncher.data.AppInfo
+import dev.victorialauncher.data.EntryKind
+import dev.victorialauncher.data.PrivateSpace
 import dev.victorialauncher.data.AzStripVisibility
 import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.HomeAlignment
@@ -178,16 +183,43 @@ fun VictoriaNavHost(
     // the first composition is what stalled the cold start. Load it off the main thread and
     // let the home screen render against an empty list for the first frame.
     var allApps by remember { mutableStateOf(emptyList<AppInfo>()) }
-    suspend fun reloadApps() {
+    // Kept beside the list because the settings screens need it for keys whose rows are
+    // deliberately absent: a favorite inside a locked private space has nothing to look up.
+    var privateSpace by remember { mutableStateOf<PrivateSpace>(PrivateSpace.Absent) }
+    /**
+     * [known] is the state to enumerate against when the caller already has one it trusts more
+     * than a fresh read would be — a lock it has just been granted, which the system has not
+     * finished applying and would still describe as an open space.
+     */
+    suspend fun reloadApps(known: PrivateSpace? = null) {
         // Read directly off the flow rather than a collectAsState snapshot: this is also
         // called from a callback registered once, in a DisposableEffect(Unit) below, whose
         // closure would otherwise keep reading whatever the search prefs were at that first
         // composition rather than their current value.
         val template = app.prefs.searchUrlTemplate.first()
         val label = app.prefs.searchLabel.first()
-        allApps = withContext(Dispatchers.Default) {
-            app.appRepository.queryAllApps(template, label)
+        val (state, apps) = withContext(Dispatchers.Default) {
+            // Resolved once and handed on, so the list and what the settings screens conceal
+            // can never disagree about whether the space was open when it was read.
+            val state = known ?: app.appRepository.privateSpace()
+            state to app.appRepository.queryAllApps(template, label, state)
         }
+        privateSpace = state
+        allApps = apps
+    }
+
+    /**
+     * Takes a state that has just been resolved and acts on what it conceals at once, on the
+     * list already in hand, before the reload that will take a moment.
+     *
+     * The reload is a full enumeration: every profile, every activity, an icon cache thrown
+     * away and rebuilt. That is long enough to read the names off a home screen, and a lock
+     * that only takes effect at the end of it has left them there for exactly that long.
+     */
+    fun adoptPrivateSpace(state: PrivateSpace) {
+        privateSpace = state
+        allApps = allApps.filterNot { it.kind == EntryKind.PRIVATE_SPACE || state.conceals(it.key) } +
+            app.appRepository.privateSpaceRow(state)
     }
     // A shortcut pinned through the confirm screen, or unpinned from a menu, changes what
     // there is to list without any package changing — so nothing here would otherwise notice.
@@ -202,10 +234,14 @@ fun VictoriaNavHost(
         val launcherApps = context.getSystemService(LauncherApps::class.java)
         fun refresh() {
             scope.launch {
+                // The private space first and on its own: whatever it conceals leaves the list
+                // that is on screen now, rather than when the enumeration below comes back.
+                val state = withContext(Dispatchers.Default) { app.appRepository.privateSpace() }
+                adoptPrivateSpace(state)
                 // An app that ships a new icon in an update changes none of the cache
                 // key's components, so nothing else would invalidate the stale bitmap.
                 clearIconCache()
-                reloadApps()
+                reloadApps(state)
             }
         }
 
@@ -228,11 +264,16 @@ fun VictoriaNavHost(
         }
         runCatching { launcherApps.registerCallback(callback) }
 
-        // Locking a private space removes the whole profile rather than any package, so it
-        // arrives as one of these instead and no package callback ever fires.
+        // Locking or unlocking a private space changes no package, so no package callback
+        // ever fires for it — it arrives as one of these instead. Android 15 sends PROFILE_-
+        // UNAVAILABLE then PROFILE_INACCESSIBLE on locking and the matching pair on
+        // unlocking, including when the screen going off re-locks the space on its own.
+        // Written as strings because the Intent constants are newer than this app's minimum.
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_MANAGED_PROFILE_AVAILABLE)
             addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE)
+            addAction("android.intent.action.PROFILE_AVAILABLE")
+            addAction("android.intent.action.PROFILE_UNAVAILABLE")
             addAction("android.intent.action.PROFILE_ACCESSIBLE")
             addAction("android.intent.action.PROFILE_INACCESSIBLE")
             addAction("android.intent.action.PROFILE_ADDED")
@@ -247,6 +288,29 @@ fun VictoriaNavHost(
             runCatching { launcherApps.unregisterCallback(callback) }
             context.unregisterReceiver(receiver)
         }
+    }
+
+    // A broadcast is the only other thing that ever says the space has locked, and it is one
+    // thing: it is only heard while this is composed, the system re-locks the space by itself
+    // whenever the screen goes off, and a lock that was missed stays missed until something
+    // else happens to reload. Coming back to the launcher is the moment that matters, so the
+    // state is read again there — a handful of binder calls, with the enumeration behind it
+    // only when the answer actually changed.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_START) return@LifecycleEventObserver
+            scope.launch {
+                val state = withContext(Dispatchers.Default) { app.appRepository.privateSpace() }
+                if (state != privateSpace) {
+                    adoptPrivateSpace(state)
+                    clearIconCache()
+                    reloadApps(state)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val hiddenApps by app.prefs.hiddenApps.collectAsState(initial = emptySet())
@@ -310,6 +374,10 @@ fun VictoriaNavHost(
     val contentColor = rememberContentColor(textColorMode, textColorCustom)
 
     val appsByKey = remember(allApps) { allApps.associateBy { it.key } }
+    // The number the hidden-apps screen itself arrives at, rather than the size of the stored
+    // set: that screen lists rows, and a hidden app inside a locked private space has no row.
+    // Counting the stored set in the subtitle says out loud how many apps are in there.
+    val hiddenShownCount = remember(allApps, hiddenApps) { allApps.count { it.key in hiddenApps } }
     val foldersById = remember(folders) { folders.associateBy { it.id } }
 
     // A favorites row is an app or a folder; both come out of the same ordered token list.
@@ -354,17 +422,24 @@ fun VictoriaNavHost(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val ok = withContext(Dispatchers.IO) {
+            // Both Locked and Unlocked have a real serial to strip; only Absent's is zero,
+            // which is exportJson's own signal that there is nothing to leave out.
+            val privateSerial = privateSpace.serial.takeIf { it != 0L }
+            val omittedPrivateSpace = withContext(Dispatchers.IO) {
                 runCatching {
-                    val json = app.prefs.exportJson()
-                    context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-                        ?: return@runCatching false
-                    true
-                }.getOrDefault(false)
+                    val result = app.prefs.exportJson(privateSerial)
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(result.json.toByteArray()) }
+                        ?: return@runCatching null
+                    result.omittedPrivateSpace
+                }.getOrNull()
             }
             Toast.makeText(
                 context,
-                if (ok) R.string.settings_export_done else R.string.settings_backup_failed,
+                when (omittedPrivateSpace) {
+                    null -> R.string.settings_backup_failed
+                    true -> R.string.settings_export_done_private_omitted
+                    false -> R.string.settings_export_done
+                },
                 Toast.LENGTH_SHORT,
             ).show()
         }
@@ -539,6 +614,18 @@ fun VictoriaNavHost(
                 onClearScrubBand = { scope.launch { app.prefs.clearScrubBand() } },
                 onPeekStatusBar = onPeekStatusBar,
                 onAppListVisibleChange = onAppListVisibleChange,
+                onTogglePrivateSpace = {
+                    scope.launch {
+                        val locked = app.appRepository.togglePrivateSpace()
+                        // Granted means locked, and locked is concealed here and now: the
+                        // broadcast that says so arrives well after the profile has stopped.
+                        if (locked != null) adoptPrivateSpace(locked)
+                        clearIconCache()
+                        // Enumerated against the lock rather than against what the system says
+                        // this instant, which for the next moment is still an open space.
+                        reloadApps(locked)
+                    }
+                },
                 onNavigate = { route -> navController.navigate(route) },
             )
         }
@@ -547,7 +634,7 @@ fun VictoriaNavHost(
             val iconPacks = remember { app.iconPackRepository.getInstalledIconPacks() }
             val listenerEnabled = remember(homeIntentTick) { isListenerEnabled(context) }
             SettingsScreen(
-                hiddenCount = hiddenApps.size,
+                hiddenCount = hiddenShownCount,
                 iconPacks = iconPacks,
                 iconPackPackage = iconPackPackage,
                 showAppIcons = showAppIcons,
@@ -697,6 +784,7 @@ fun VictoriaNavHost(
                 allApps = allApps,
                 favoriteKeys = favoriteKeys,
                 folders = folders,
+                privateSpace = privateSpace,
                 nameOverrides = nameOverrides,
                 iconSizeDp = iconSizeDp,
                 onReorder = { keys -> scope.launch { app.prefs.setFavorites(keys) } },
@@ -720,6 +808,7 @@ fun VictoriaNavHost(
             FolderAppsScreen(
                 folder = foldersById[id],
                 allApps = allApps,
+                privateSpace = privateSpace,
                 nameOverrides = nameOverrides,
                 iconSizeDp = iconSizeDp,
                 onSetInFolder = { appInfo, inFolder ->

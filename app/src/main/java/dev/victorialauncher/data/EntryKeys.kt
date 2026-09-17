@@ -18,6 +18,9 @@ object EntryKeys {
     /** The one search entry. The suffix leaves room for more than one later. */
     const val SEARCH = "search:default"
 
+    /** The one row that locks and unlocks the private space. */
+    const val PRIVATE_SPACE = "private:space"
+
     private const val USER_SUFFIX = "|u"
     private val userSuffixPattern = Regex("""\|u(\d+)$""")
 
@@ -32,9 +35,16 @@ object EntryKeys {
      * would corrupt that list for every favorite after it, not just itself. A shortcut whose id
      * fails this is refused rather than stored: [dev.victorialauncher.data.AppRepository]
      * filters it out of the pinned list, and the pin confirmation refuses to accept it.
+     *
+     * Nor may an id end the way a profile suffix does. A key's profile is read off its end, so
+     * a main-profile shortcut whose id ended `|u11` would read as belonging to profile 11 — and
+     * be hidden along with a private space that happened to have that serial.
      */
     fun isStorableShortcutId(id: String): Boolean =
-        id.isNotEmpty() && id.length <= MAX_SHORTCUT_ID_LENGTH && id.none { Character.isISOControl(it) }
+        id.isNotEmpty() &&
+            id.length <= MAX_SHORTCUT_ID_LENGTH &&
+            id.none { Character.isISOControl(it) } &&
+            !userSuffixPattern.containsMatchIn(id)
 
     /**
      * The main profile's key is byte-for-byte what it was before profiles existed, so every
@@ -50,6 +60,16 @@ object EntryKeys {
     fun isShortcut(key: String): Boolean = key.startsWith(SHORTCUT_PREFIX)
 
     fun isSearch(key: String): Boolean = key == SEARCH
+
+    fun isPrivateSpace(key: String): Boolean = key == PRIVATE_SPACE
+
+    /**
+     * Which profile a stored key belongs to: the trailing `|u<serial>`, or zero, which is what
+     * a key without one has always meant. Read from the key rather than from the row it names,
+     * because a locked private space's rows are deliberately not there to be looked up.
+     */
+    fun userSerial(key: String): Long =
+        userSuffixPattern.find(key)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
 
     data class ShortcutRef(val packageName: String, val shortcutId: String, val userSerial: Long)
 
