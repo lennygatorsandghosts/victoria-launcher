@@ -242,6 +242,7 @@
     <string name="search_dialog_hint">Buscar en la web</string>
     <string name="search_dialog_action">Buscar</string>
     <string name="toast_search_failed">No se encontró un navegador para abrir esa búsqueda</string>
+    <string name="toast_search_unavailable">La dirección de búsqueda no es válida — revísala en Ajustes</string>
     <string name="settings_section_search">Botón de búsqueda</string>
     <string name="settings_search_button_detail">Abre en tu navegador la dirección de abajo, con lo que escribas en el lugar de %1$s</string>
     <string name="settings_search_button_label">Etiqueta</string>

@@ -242,6 +242,7 @@
     <string name="search_dialog_hint">Search the web</string>
     <string name="search_dialog_action">Search</string>
     <string name="toast_search_failed">Couldn\'t find a browser to open that search</string>
+    <string name="toast_search_unavailable">The search address isn\'t valid — check it in Settings</string>
     <string name="settings_section_search">Search button</string>
     <string name="settings_search_button_detail">Opens the address below in your browser, with what you type in place of %1$s</string>
     <string name="settings_search_button_label">Label</string>

@@ -255,6 +255,14 @@ class SearchUrlTest {
     }
 
     @Test
+    fun `an uppercase scheme is lowercased in the built url, host, path and query untouched`() {
+        val built = SearchUrl.build("HTTPS://search.example.org/Search?Q=%s", "hello")
+        checkNotNull(built)
+        assertTrue(built.startsWith("https://"))
+        assertEquals("https://search.example.org/Search?Q=hello", built)
+    }
+
+    @Test
     fun `the built url re-parses to the same host for a unicode template`() {
         val template = "https://пример.рф/search?q=%s"
         val built = SearchUrl.build(template, "hello")

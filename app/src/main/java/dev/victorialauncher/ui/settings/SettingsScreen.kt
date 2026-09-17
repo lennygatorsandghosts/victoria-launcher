@@ -37,10 +37,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
@@ -1126,9 +1128,17 @@ private fun AccessibilityActions(onOpenAccessibilitySettings: () -> Unit, onOpen
 }
 
 /**
- * Every keystroke is saved immediately, the same as every slider and switch elsewhere on this
- * screen — there is no separate save step to forget. An empty template is a valid state (the
- * feature simply stays off), so nothing is flagged as an error until something is typed.
+ * Unlike every slider and switch elsewhere on this screen, a keystroke here is NOT saved
+ * immediately: each write to Prefs is picked up by `LaunchedEffect(searchUrlTemplate,
+ * searchLabel) { reloadApps() }` in VictoriaNavHost, which re-runs a full, uncancellable
+ * `queryAllApps()` over every launchable activity in every profile plus shortcut queries — fine
+ * once per edit, not once per character. Text is kept in local state and committed to Prefs
+ * ~400ms after the last keystroke, and immediately on leaving the screen so nothing typed is
+ * lost to a debounce that never got to fire. Inline validation still reads the local text
+ * directly, so it updates live regardless of the debounce.
+ *
+ * An empty template is a valid state (the feature simply stays off), so nothing is flagged as
+ * an error until something is typed.
  */
 @Composable
 private fun SearchButtonSection(
@@ -1137,9 +1147,53 @@ private fun SearchButtonSection(
     onSetUrlTemplate: (String) -> Unit,
     onSetLabel: (String) -> Unit,
 ) {
+    // onSetUrlTemplate/onSetLabel are fresh lambdas every time the caller recomposes, so the
+    // debounce coroutine and DisposableEffect below — which, once launched, keep running with
+    // whatever they closed over until they fire — read the latest one through this instead.
+    val currentOnSetUrlTemplate by rememberUpdatedState(onSetUrlTemplate)
+    val currentOnSetLabel by rememberUpdatedState(onSetLabel)
+
     var urlText by remember { mutableStateOf(urlTemplate) }
     var labelText by remember { mutableStateOf(label) }
+    // What this screen itself last pushed to Prefs (or started from). Lets an external change
+    // to the stored value — an import landing while this screen is open, or the DataStore
+    // Flow's real value arriving after collectAsState's initial "" — be told apart from the
+    // echo of this screen's own debounced write, and adopted only while the field isn't
+    // mid-edit, so it never clobbers an unsaved keystroke.
+    var lastPushedUrl by remember { mutableStateOf(urlTemplate) }
+    var lastPushedLabel by remember { mutableStateOf(label) }
+    LaunchedEffect(urlTemplate) {
+        if (urlTemplate != lastPushedUrl && urlText == lastPushedUrl) urlText = urlTemplate
+        lastPushedUrl = urlTemplate
+    }
+    LaunchedEffect(label) {
+        if (label != lastPushedLabel && labelText == lastPushedLabel) labelText = label
+        lastPushedLabel = label
+    }
+
     val validation = remember(urlText) { SearchUrl.validate(urlText) }
+
+    LaunchedEffect(urlText) {
+        if (urlText == lastPushedUrl) return@LaunchedEffect
+        delay(400)
+        currentOnSetUrlTemplate(urlText)
+        lastPushedUrl = urlText
+    }
+    LaunchedEffect(labelText) {
+        if (labelText == lastPushedLabel) return@LaunchedEffect
+        delay(400)
+        currentOnSetLabel(labelText)
+        lastPushedLabel = labelText
+    }
+    // Leaving the screen — back press, or this section scrolling out and recomposing away —
+    // cancels those LaunchedEffects before a pending debounce can fire, so anything still
+    // unsaved is flushed here instead.
+    DisposableEffect(Unit) {
+        onDispose {
+            if (urlText != lastPushedUrl) currentOnSetUrlTemplate(urlText)
+            if (labelText != lastPushedLabel) currentOnSetLabel(labelText)
+        }
+    }
 
     Section(stringResource(R.string.settings_section_search)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -1151,7 +1205,7 @@ private fun SearchButtonSection(
             )
             OutlinedTextField(
                 value = labelText,
-                onValueChange = { labelText = it; onSetLabel(it) },
+                onValueChange = { labelText = it },
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_search_button_label)) },
                 placeholder = { Text(stringResource(R.string.search_entry_default_label)) },
@@ -1160,7 +1214,7 @@ private fun SearchButtonSection(
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = urlText,
-                onValueChange = { urlText = it; onSetUrlTemplate(it) },
+                onValueChange = { urlText = it },
                 singleLine = true,
                 label = { Text(stringResource(R.string.settings_search_button_url)) },
                 placeholder = { Text(stringResource(R.string.settings_search_button_url_hint)) },

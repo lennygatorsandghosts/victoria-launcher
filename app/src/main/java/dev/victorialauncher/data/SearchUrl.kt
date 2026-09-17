@@ -115,7 +115,15 @@ object SearchUrl {
     fun build(template: String, query: String): String? {
         if (validate(template) !is Validation.Ok) return null
         if (query.isBlank()) return null
-        return template.trim().replaceFirst(PLACEHOLDER, encodeQueryComponent(query))
+
+        // Intent-filter scheme matching on Android is case-sensitive, so a template validate()
+        // accepted, like "HTTPS://...", would otherwise resolve to no activity at all. validate()
+        // already guarantees the placeholder sits after the authority, so the scheme is exactly
+        // the text before the first colon; only that gets lowercased, host/path/query untouched.
+        val trimmed = template.trim()
+        val schemeEnd = trimmed.indexOf(':')
+        val normalized = trimmed.substring(0, schemeEnd).lowercase() + trimmed.substring(schemeEnd)
+        return normalized.replaceFirst(PLACEHOLDER, encodeQueryComponent(query))
     }
 
     private fun Char.isIsoControl(): Boolean = Character.isISOControl(this)
