@@ -627,6 +627,9 @@ fun VictoriaNavHost(
                 folders = folders,
                 favoriteKeys = favoriteKeys,
                 hiddenApps = hiddenApps,
+                // The state this very list was enumerated against, not a fresh read: which
+                // rows the list files into the private section is decided from its serial.
+                privateSpace = privateSpace,
                 nameOverrides = nameOverrides,
                 widgetIds = widgetIds,
                 widgetPosition = widgetPosition,

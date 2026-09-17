@@ -21,6 +21,12 @@ enum class EntryKind {
 
     /** The row that locks and unlocks Android's private space. */
     PRIVATE_SPACE,
+
+    /** The launcher's own row that offers the apps installed most recently. */
+    RECENT,
+
+    /** The launcher's own row that opens its settings. */
+    SETTINGS,
 }
 
 /**
@@ -58,6 +64,8 @@ data class AppInfo(
             EntryKeys.shortcut(componentName.packageName, shortcutId.orEmpty(), userSerial)
         EntryKind.SEARCH -> EntryKeys.SEARCH
         EntryKind.PRIVATE_SPACE -> EntryKeys.PRIVATE_SPACE
+        EntryKind.RECENT -> EntryKeys.RECENT
+        EntryKind.SETTINGS -> EntryKeys.SETTINGS
     }
 
     val packageName: String get() = componentName.packageName

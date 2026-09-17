@@ -18,6 +18,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -215,6 +217,12 @@ fun AppListScreen(
     searchAtBottom: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
+    /**
+     * Bumped to put the cursor in the search field. An Int rather than a Boolean so a second
+     * press while the field is already focused still counts as a press. Ignored when there is
+     * no field, which is the one setting that can take it away.
+     */
+    focusSearchRequest: Int = 0,
     alignment: HomeAlignment,
     iconSide: IconSide,
 ) {
@@ -360,6 +368,18 @@ fun AppListScreen(
     // composed while hidden: the tail padding and the collapse transform from the last scrub
     // would otherwise still be there the next time it opens.
     val focusManager = LocalFocusManager.current
+
+    // Only ever attached to the one field that is actually composed — top or bottom, never
+    // both — so requesting focus can only ever reach that one.
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(focusSearchRequest) {
+        if (focusSearchRequest == 0 || !searchEnabled) return@LaunchedEffect
+        // The overlay stays composed while hidden, so the field is normally there to focus;
+        // a request that arrives in the frame before it is attached throws rather than
+        // waiting, and a cursor that did not appear is not worth a crash.
+        runCatching { searchFocus.requestFocus() }
+    }
+
     LaunchedEffect(visible) {
         if (!visible) {
             focusManager.clearFocus()
@@ -763,6 +783,7 @@ fun AppListScreen(
                 contentColor = contentColor,
                 activeSide = activeSide,
                 showAlphabet = showAlphabet,
+                focusRequester = searchFocus,
                 modifier = Modifier.onSizeChanged { searchHeightPx = it.height },
             )
         }
@@ -924,6 +945,7 @@ fun AppListScreen(
                 contentColor = contentColor,
                 activeSide = activeSide,
                 showAlphabet = showAlphabet,
+                focusRequester = searchFocus,
                 atBottom = true,
             )
         }
@@ -1183,6 +1205,7 @@ private fun SearchField(
     contentColor: Color,
     activeSide: EdgeSide,
     showAlphabet: Boolean,
+    focusRequester: FocusRequester,
     atBottom: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -1221,6 +1244,7 @@ private fun SearchField(
             unfocusedContainerColor = Color.Transparent,
         ),
         modifier = modifier
+            .focusRequester(focusRequester)
             // The overlay draws under both system bars, so without this the field sits behind
             // the clock at the top, or the gesture pill at the bottom.
             .then(

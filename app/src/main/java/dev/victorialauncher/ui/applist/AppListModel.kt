@@ -3,6 +3,7 @@ package dev.victorialauncher.ui.applist
 
 import androidx.compose.runtime.Immutable
 import dev.victorialauncher.data.AppInfo
+import dev.victorialauncher.data.EntryKind
 import android.icu.text.Transliterator
 import android.os.Build
 import androidx.annotation.RequiresApi
@@ -10,7 +11,17 @@ import java.text.Normalizer
 
 @Immutable
 sealed interface AppListRow {
-    data class Header(val text: String) : AppListRow
+    /**
+     * [indexChar] is what the strip shows for this section and what scrubbing to it targets.
+     * It defaults to the first character of [text], which is what an A-Z header wants, and is
+     * given explicitly by the sections that are not letters — the private space and the
+     * launcher's own rows, whose headers are words rather than a letter.
+     */
+    data class Header(
+        val text: String,
+        val indexChar: Char? = text.firstOrNull(),
+    ) : AppListRow
+
     data class Entry(val app: AppInfo) : AppListRow
 }
 
@@ -128,10 +139,105 @@ private val LATIN_STANDALONE = mapOf(
     'Þ' to 'T', 'Ħ' to 'H', 'Ŧ' to 'T', 'Ŋ' to 'N', 'Ə' to 'E', 'ẞ' to 'S', 'ß' to 'S',
 )
 
+/** The section heading the private space's own rows sit under. */
+const val PRIVATE_SECTION_TITLE = "Private space"
+
+/** The section heading the launcher's own rows sit under, at the very bottom. */
+const val LAUNCHER_SECTION_TITLE = "Vicky+"
+
 /**
- * [launchCounts] empty keeps every section alphabetical; otherwise the apps inside each letter
- * are ordered by how often they were opened from here. The letters themselves never move —
- * an app is still filed under its own name, or the scrubber would be pointing at nothing.
+ * The whole shape of the list — which section a row belongs to, what order the sections come
+ * in, and where each strip target lands in the finished rows.
+ *
+ * Generic and given every fact it decides from, so that none of it names an Android type and
+ * the whole table can be tested on the JVM: an AppInfo cannot be built in a unit test at all,
+ * because its key is its flattened ComponentName and the stub android.jar throws rather than
+ * flattening one. [header] and [entry] build whatever rows the caller actually draws.
+ *
+ * Three sections, in this order, and the order is the feature:
+ * 1. A-Z, from every row that is neither private nor one of the launcher's own. A work
+ *    profile's apps belong here — they are not private, and filing them anywhere else would
+ *    be saying out loud which ones they are.
+ * 2. The private space, if it has anything at all in it: the padlock first, then its apps.
+ * 3. The launcher's own rows.
+ *
+ * [launchCounts] empty keeps every A-Z section alphabetical; otherwise the apps inside each
+ * letter are ordered by how often they were opened from here. The letters themselves never
+ * move — an app is still filed under its own name, or the scrubber would be pointing at
+ * nothing. The two tail sections are never ordered by launch count: one is a padlock and a
+ * handful of apps, the other is two fixed rows.
+ */
+internal fun <T, R> buildSectionedRows(
+    items: List<T>,
+    key: (T) -> String,
+    hidden: Set<String>,
+    displayName: (T) -> String,
+    englishName: (T) -> String?,
+    launchCounts: Map<String, Int>,
+    isPrivate: (T) -> Boolean,
+    isPadlock: (T) -> Boolean,
+    /** Null for anything that is not one of the launcher's own rows; lower sorts first. */
+    launcherRank: (T) -> Int?,
+    privateTitle: String,
+    launcherTitle: String,
+    header: (String, Char?) -> R,
+    entry: (T) -> R,
+): Pair<List<R>, List<Pair<Char, Int>>> {
+    val visible = items.filter { key(it) !in hidden }
+    val rows = mutableListOf<R>()
+    val letterIndex = mutableListOf<Pair<Char, Int>>()
+
+    val privateRows = visible.filter { isPrivate(it) }
+    // Private wins over everything, here and in the A-Z filter below, so no row can be drawn
+    // twice and none can escape the private section by also answering to something else.
+    val launcherRows = visible.filter { !isPrivate(it) && launcherRank(it) != null }
+    val lettered = visible.filter { !isPrivate(it) && launcherRank(it) == null }
+
+    val byLetter = lettered.groupBy { item ->
+        val own = indexLetter(displayName(item))
+        if (own != '#') own else englishName(item)?.let { indexLetter(it) } ?: '#'
+    }
+    byLetter.toSortedMap().forEach { (letter, list) ->
+        letterIndex += letter to rows.size
+        rows += header(letter.toString(), letter)
+        list.sortedWith(
+            compareByDescending<T> { launchCounts[key(it)] ?: 0 }
+                .thenBy { displayName(it).lowercase() }
+        ).forEach { rows += entry(it) }
+    }
+
+    // Header and all. A section that exists only because the space is locked is a header and
+    // a padlock, which says nothing a padlock on its own does not: that there is a space.
+    if (privateRows.isNotEmpty()) {
+        letterIndex += GLYPH_PRIVATE to rows.size
+        rows += header(privateTitle, GLYPH_PRIVATE)
+        // The padlock first: it is the way in and out of the space, not an app inside it, and
+        // it is the one row that is there in every state. Then the apps by name — how often
+        // something inside the space was opened is not an order to put on screen.
+        val (padlock, apps) = privateRows.partition { isPadlock(it) }
+        padlock.forEach { rows += entry(it) }
+        apps.sortedBy { displayName(it).lowercase() }.forEach { rows += entry(it) }
+    }
+
+    if (launcherRows.isNotEmpty()) {
+        letterIndex += GLYPH_LAUNCHER to rows.size
+        rows += header(launcherTitle, GLYPH_LAUNCHER)
+        launcherRows.sortedBy { launcherRank(it) ?: 0 }.forEach { rows += entry(it) }
+    }
+
+    return rows to letterIndex
+}
+
+/**
+ * [isPrivateRow] says whether a row belongs to the private space, and only the caller can
+ * know: it is the profile serial the [dev.victorialauncher.data.PrivateSpace] state published
+ * alongside this very list reported, matched against the row's own serial. Never read off the
+ * key's `|u` suffix — every second profile has one, so a work profile would be filed into the
+ * private section and the list would be announcing which apps are the work ones.
+ *
+ * The padlock row is treated as private whatever the caller answers. It is the one row that
+ * must never land in A-Z, and a caller that forgets is a caller that files it under P beside
+ * everything else — which is exactly where it used to be.
  */
 fun buildAppListModel(
     apps: List<AppInfo>,
@@ -145,25 +251,31 @@ fun buildAppListModel(
      * is not A-Z — so scrubbing to B, where its English name Blue would put it, finds nothing.
      */
     englishName: (AppInfo) -> String? = { null },
+    isPrivateRow: (AppInfo) -> Boolean = { false },
+    privateSectionTitle: String = PRIVATE_SECTION_TITLE,
+    launcherSectionTitle: String = LAUNCHER_SECTION_TITLE,
 ): AppListModel {
-    val visible = apps.filter { it.key !in hidden }
-    val rows = mutableListOf<AppListRow>()
-
-    val byLetter = visible.groupBy { app ->
-        val own = indexLetter(displayName(app))
-        if (own != '#') own else englishName(app)?.let { indexLetter(it) } ?: '#'
-    }
-
-    val letterIndex = mutableListOf<Pair<Char, Int>>()
-    byLetter.toSortedMap().forEach { (letter, list) ->
-        letterIndex += letter to rows.size
-        rows += AppListRow.Header(letter.toString())
-        list.sortedWith(
-            compareByDescending<AppInfo> { launchCounts[it.key] ?: 0 }
-                .thenBy { displayName(it).lowercase() }
-        ).forEach { rows += AppListRow.Entry(it) }
-    }
-
+    val (rows, letterIndex) = buildSectionedRows(
+        items = apps,
+        key = { it.key },
+        hidden = hidden,
+        displayName = displayName,
+        englishName = englishName,
+        launchCounts = launchCounts,
+        isPrivate = { it.kind == EntryKind.PRIVATE_SPACE || isPrivateRow(it) },
+        isPadlock = { it.kind == EntryKind.PRIVATE_SPACE },
+        launcherRank = {
+            when (it.kind) {
+                EntryKind.RECENT -> 0
+                EntryKind.SETTINGS -> 1
+                else -> null
+            }
+        },
+        privateTitle = privateSectionTitle,
+        launcherTitle = launcherSectionTitle,
+        header = { text, indexChar -> AppListRow.Header(text, indexChar) },
+        entry = { AppListRow.Entry(it) },
+    )
     return AppListModel(rows, letterIndex)
 }
 
@@ -171,6 +283,11 @@ fun buildAppListModel(
  * The same list with only the entries [match] accepts, and only the headers still holding
  * something. Rebuilt rather than filtered in place: letterIndex stores row indices, so
  * removing any row invalidates every index after it.
+ *
+ * Each surviving header brings its own [AppListRow.Header.indexChar] with it rather than
+ * having a letter derived from its text. That is what keeps a searched-for private app under
+ * its own heading: "Private space" begins with a P, and reading the strip target off the text
+ * would file the whole section back under P alongside every other P app.
  */
 fun AppListModel.filtered(match: (AppInfo) -> Boolean): AppListModel {
     val kept = mutableListOf<AppListRow>()
@@ -182,7 +299,7 @@ fun AppListModel.filtered(match: (AppInfo) -> Boolean): AppListModel {
             is AppListRow.Header -> pendingHeader = row
             is AppListRow.Entry -> if (match(row.app)) {
                 pendingHeader?.let { header ->
-                    header.text.firstOrNull()?.let { letterIndex += it to kept.size }
+                    header.indexChar?.let { letterIndex += it to kept.size }
                     kept += header
                     pendingHeader = null
                 }

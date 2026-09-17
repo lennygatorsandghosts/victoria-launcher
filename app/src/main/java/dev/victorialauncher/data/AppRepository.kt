@@ -36,6 +36,14 @@ import kotlinx.coroutines.withContext
 private const val PIN_CONFIRM_ATTEMPTS = 5
 private const val PIN_CONFIRM_DELAY_MS = 200L
 
+/**
+ * The launcher's own rows name themselves after this package, having no activity of their
+ * own, and say which row they are in the class name — which is also what keeps them apart in
+ * the icon cache, the same arrangement the two padlocks use.
+ */
+private const val RECENT_CLASS = "vicky-recent"
+private const val SETTINGS_CLASS = "vicky-settings"
+
 class AppRepository(
     private val context: Context,
     private val prefs: Prefs,
@@ -118,8 +126,9 @@ class AppRepository(
             .filterNot { privateSpace.conceals(it.key) }
             .distinctBy { it.key }
             .sortedBy { it.label.lowercase() }
-            // After the own-package filter, which would otherwise drop it: the row is ours.
+            // After the own-package filter, which would otherwise drop them: the rows are ours.
             .plus(privateSpaceRow(privateSpace))
+            .plus(launcherRows())
 
         if (SearchUrl.validate(searchUrlTemplate) !is SearchUrl.Validation.Ok) return apps
 
@@ -448,16 +457,35 @@ class AppRepository(
         if (!state.offersPadlockRow) return emptyList()
         // Unlocked is the only state with an open padlock, and it always names its profile,
         // so a row offered without one is always the closed padlock.
-        val className =
-            if (state is PrivateSpace.Unlocked) PRIVATE_SPACE_UNLOCKED_CLASS else PRIVATE_SPACE_LOCKED_CLASS
+        val unlocked = state is PrivateSpace.Unlocked
         return listOf(
             AppInfo(
-                componentName = ComponentName(context.packageName, className),
-                label = context.getString(R.string.private_space),
+                componentName = ComponentName(context.packageName, PrivateSpaceRow.className(unlocked)),
+                label = context.getString(PrivateSpaceRow.labelRes(unlocked)),
                 kind = EntryKind.PRIVATE_SPACE,
             )
         )
     }
+
+    /**
+     * The launcher's own two rows, which sit in a section of their own at the bottom of the
+     * list. Synthesised here rather than anywhere else for the same reason the search row is:
+     * this is the one place that decides what there is to list, so they are hideable,
+     * favoritable, renameable and re-iconable like every other row without a line of code
+     * anywhere else knowing they exist.
+     */
+    fun launcherRows(): List<AppInfo> = listOf(
+        AppInfo(
+            componentName = ComponentName(context.packageName, RECENT_CLASS),
+            label = context.getString(R.string.recent_entry_label),
+            kind = EntryKind.RECENT,
+        ),
+        AppInfo(
+            componentName = ComponentName(context.packageName, SETTINGS_CLASS),
+            label = context.getString(R.string.settings_entry_label),
+            kind = EntryKind.SETTINGS,
+        ),
+    )
 
     /** Badged by the system, so a work or private-space app is recognizable at a glance. */
     fun loadIcon(app: AppInfo): Drawable {
@@ -471,6 +499,15 @@ class AppRepository(
             return ContextCompat.getDrawable(context, R.drawable.ic_search_entry) ?: pm.defaultActivityIcon
         }
         if (app.kind == EntryKind.PRIVATE_SPACE) return privateSpaceIcon(app)
+        // The launcher's own rows, which are not backed by a package either. Drawn the same
+        // adaptive shape as the search row so they sit among real app icons rather than
+        // standing out as something else.
+        if (app.kind == EntryKind.RECENT) {
+            return ContextCompat.getDrawable(context, R.drawable.ic_recent_entry) ?: pm.defaultActivityIcon
+        }
+        if (app.kind == EntryKind.SETTINGS) {
+            return ContextCompat.getDrawable(context, R.drawable.ic_settings_entry) ?: pm.defaultActivityIcon
+        }
         val user = app.user
         if (user != null) {
             val activity = runCatching {

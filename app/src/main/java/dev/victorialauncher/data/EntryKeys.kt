@@ -21,6 +21,14 @@ object EntryKeys {
     /** The one row that locks and unlocks the private space. */
     const val PRIVATE_SPACE = "private:space"
 
+    /**
+     * The launcher's own rows. Stored like any other key — they can be favorited, hidden,
+     * renamed and given an icon — so they need a prefix no package name can start with, the
+     * same as the two above.
+     */
+    const val RECENT = "vicky:recent"
+    const val SETTINGS = "vicky:settings"
+
     private const val USER_SUFFIX = "|u"
     private val userSuffixPattern = Regex("""\|u(\d+)$""")
 
