@@ -21,6 +21,12 @@ enum class EntryKind {
 
     /** The row that locks and unlocks Android's private space. */
     PRIVATE_SPACE,
+
+    /** The launcher's own row that offers the apps installed most recently. */
+    RECENT,
+
+    /** The launcher's own row that opens its settings. */
+    SETTINGS,
 }
 
 /**
@@ -39,6 +45,8 @@ data class AppInfo(
     val kind: EntryKind = EntryKind.APP,
     /** The publisher's id for a pinned shortcut. Null for every other kind. */
     val shortcutId: String? = null,
+    /** Main-profile install time used for local suggestions. Other profiles deliberately stay 0. */
+    val firstInstallTime: Long = 0L,
     /** A shortcut its publisher has switched off: still listed, shown dimmed, never started. */
     val disabled: Boolean = false,
 ) {
@@ -58,6 +66,8 @@ data class AppInfo(
             EntryKeys.shortcut(componentName.packageName, shortcutId.orEmpty(), userSerial)
         EntryKind.SEARCH -> EntryKeys.SEARCH
         EntryKind.PRIVATE_SPACE -> EntryKeys.PRIVATE_SPACE
+        EntryKind.RECENT -> EntryKeys.RECENT
+        EntryKind.SETTINGS -> EntryKeys.SETTINGS
     }
 
     val packageName: String get() = componentName.packageName

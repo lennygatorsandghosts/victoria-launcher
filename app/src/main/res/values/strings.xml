@@ -59,6 +59,7 @@
     <string name="applist_band_bottom">Bottom of the A-Z strip</string>
 
     <string name="applist_search">Search apps</string>
+    <string name="applist_recently_installed">Recently installed</string>
 
     <!-- Toasts -->
     <string name="toast_enable_accessibility_shade">Enable Vicky+ in Settings → Accessibility to open notifications</string>
@@ -203,7 +204,16 @@
     <string name="edge_both">Both</string>
 
     <!-- Private space -->
+    <!-- The heading of the section the space's own rows sit under, at the bottom of the list. -->
     <string name="private_space">Private space</string>
+    <!-- The padlock row itself, which says what pressing it will do rather than what it is. -->
+    <string name="private_space_unlock">Unlock private space</string>
+    <string name="private_space_lock">Lock private space</string>
+
+    <!-- The launcher's own section at the very bottom of the app list -->
+    <string name="vicky_section">Vicky+</string>
+    <string name="recent_entry_label">Recently installed</string>
+    <string name="settings_entry_label">Vicky+ settings</string>
 
     <!-- Favorites / hidden / folder pickers -->
     <string name="favorites_title">Favorites</string>

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package dev.victorialauncher.ui.applist
 
+import kotlin.math.abs
+import kotlin.math.exp
+
 /**
  * One source of truth for where the A-Z strip sits, so the letter your finger is on is the
  * letter that lights up. The strip occupies a band — by default the vertical span of the
@@ -16,6 +19,14 @@ object ScrubberGeometry {
         if (count <= 0 || heightPx <= 0f) return 0
         val idx = ((y - topPx) / (heightPx / count)).toInt()
         return idx.coerceIn(0, count - 1)
+    }
+
+    /** Gaussian gain for the scrubber wave at [distancePx] from its peak. */
+    fun bellGain(distancePx: Float, sigmaPx: Float): Float {
+        if (sigmaPx <= 0f) return if (distancePx == 0f) 1f else 0f
+        val normalized = distancePx / sigmaPx
+        if (abs(normalized) >= 8f) return 0f
+        return exp(-(normalized * normalized) / 2f).coerceIn(0f, 1f)
     }
 
     /** True while [y] is within the band, rather than clamped to one of its ends. */

@@ -117,7 +117,7 @@ fun ButtonActionPickerScreen(
                     is AppListRow.Entry -> {
                         val offered = when (row.app.kind) {
                             EntryKind.APP, EntryKind.SHORTCUT, EntryKind.SEARCH -> true
-                            EntryKind.PRIVATE_SPACE -> false
+                            EntryKind.PRIVATE_SPACE, EntryKind.RECENT, EntryKind.SETTINGS -> false
                         }
                         if (offered) {
                             item(key = row.app.key) {

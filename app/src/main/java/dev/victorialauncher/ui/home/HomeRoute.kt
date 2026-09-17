@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.Lifecycle
@@ -55,6 +56,7 @@ import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.ButtonAction
 import dev.victorialauncher.data.ButtonSlot
 import dev.victorialauncher.data.EntryKind
+import dev.victorialauncher.data.PrivateSpace
 import dev.victorialauncher.data.restoreConcealed
 import dev.victorialauncher.data.AzStripVisibility
 import dev.victorialauncher.data.EdgeSide
@@ -73,6 +75,7 @@ import dev.victorialauncher.ui.applist.AppListScreen
 import dev.victorialauncher.ui.applist.BandEditOverlay
 import dev.victorialauncher.ui.applist.EdgeScrubber
 import dev.victorialauncher.ui.applist.EdgeTouchZone
+import dev.victorialauncher.ui.applist.GLYPH_FAVORITES
 import dev.victorialauncher.ui.applist.ScrubBand
 import dev.victorialauncher.ui.applist.ScrubState
 import dev.victorialauncher.ui.applist.buildAppListModel
@@ -128,6 +131,13 @@ fun HomeRoute(
     folders: List<Folder>,
     favoriteKeys: List<String>,
     hiddenApps: Set<String>,
+    /**
+     * The state published alongside [appsByKey], never a fresh read: which rows belong to the
+     * private space is decided by matching this serial against each row's own, and a state
+     * read at a different moment than the list would put the space's apps in the wrong
+     * section — or, while it is locking, in the list at all.
+     */
+    privateSpace: PrivateSpace,
     nameOverrides: Map<String, String>,
     widgetIds: List<Int>,
     widgetPosition: Int,
@@ -157,6 +167,21 @@ fun HomeRoute(
     // the list's own model otherwise, so nothing is grouped and sorted twice for nothing.
     val includeHiddenInSearch = settings.appListSearchHidden && hiddenApps.isNotEmpty()
 
+    // Which rows belong to the private space, decided once for every path that builds a
+    // model — the list, the hidden-search model, and through them the filtered search — so
+    // they can never disagree about where a private app sits.
+    //
+    // By serial, taken from the state published with this very list, and never from the key's
+    // `|u` suffix: a work profile has one of those too, and filing work apps into the private
+    // section would be the list announcing which ones they are. Zero means nothing matches,
+    // which is what Absent and every main-profile row are.
+    val privateSerial = privateSpace.serial
+    val isPrivateRow = remember(privateSerial) {
+        { info: AppInfo -> privateSerial != 0L && info.userSerial == privateSerial }
+    }
+    val privateSectionTitle = stringResource(R.string.private_space)
+    val launcherSectionTitle = stringResource(R.string.vicky_section)
+
     // Grouping, sorting and flattening every installed app is too much to do in composition,
     // and it re-runs whenever a name override changes.
     val listModel by produceState(
@@ -164,6 +189,7 @@ fun HomeRoute(
         appsByKey,
         hiddenApps,
         nameOverrides,
+        isPrivateRow,
         // Empty unless the sort is on, so an ordinary launch doesn't rebuild the whole list.
         if (settings.sortByUsage) launchCounts else emptyMap(),
     ) {
@@ -176,6 +202,9 @@ fun HomeRoute(
                 { nameOverrides[it.key] ?: it.label },
                 counts,
                 englishName = { app.appRepository.englishLabel(it) },
+                isPrivateRow = isPrivateRow,
+                privateSectionTitle = privateSectionTitle,
+                launcherSectionTitle = launcherSectionTitle,
             )
         }
     }
@@ -185,6 +214,7 @@ fun HomeRoute(
         appsByKey,
         nameOverrides,
         includeHiddenInSearch,
+        isPrivateRow,
         if (settings.sortByUsage) launchCounts else emptyMap(),
     ) {
         val apps = appsByKey.values.toList()
@@ -199,6 +229,9 @@ fun HomeRoute(
                     { nameOverrides[it.key] ?: it.label },
                     counts,
                     englishName = { app.appRepository.englishLabel(it) },
+                    isPrivateRow = isPrivateRow,
+                    privateSectionTitle = privateSectionTitle,
+                    launcherSectionTitle = launcherSectionTitle,
                 )
             }
         }
@@ -218,6 +251,14 @@ fun HomeRoute(
     // Set while the search row's web-search bar is up; null for a direct web-search action.
     var searchEntry by remember { mutableStateOf<AppInfo?>(null) }
     var webSearchOpen by remember { mutableStateOf(false) }
+
+    // Bumped by the "Recently installed" row. Acted on by an effect further down rather than
+    // here, because opening the list needs the animation that is declared below this.
+    var showRecentRequest by remember { mutableIntStateOf(0) }
+
+    // Bumped to put the cursor in the app list's own search field. An Int rather than a
+    // Boolean so a second press while the field is already focused still counts as a press.
+    var focusSearchRequest by remember { mutableIntStateOf(0) }
 
     // Every row's tap ends up here. A search row has no activity to start — it asks for a
     // query instead — so it is the one kind kept out of AppRepository.launch() entirely,
@@ -239,6 +280,21 @@ fun HomeRoute(
         // coming to the foreground to wait for.
         EntryKind.PRIVATE_SPACE -> {
             onTogglePrivateSpace()
+            true
+        }
+        // The launcher's own settings, reached the same way a long press on the wallpaper
+        // reaches them. The overlay is put away by the caller first, the same as for the
+        // search row: what comes next is a screen of ours, not an app taking the screen over.
+        EntryKind.SETTINGS -> {
+            onNavigate("settings")
+            true
+        }
+        // Until the suggestions themselves land (DESIGN2 item 6) this row is the way into the
+        // list's own search, which is where they will be offered. A documented no-op when the
+        // search field is switched off, since there is then nothing to put a cursor in and
+        // nothing on screen that would explain a list that had silently started filtering.
+        EntryKind.RECENT -> {
+            showRecentRequest++
             true
         }
     }
@@ -322,6 +378,19 @@ fun HomeRoute(
         appListQuery = taken.fold(appListQuery) { text, key ->
             if (key.char == null) text.dropLast(1) else text + key.char
         }
+    }
+
+    // "Recently installed", pressed from the list or from the home screen. For now it opens
+    // the list with the cursor in its search field; the suggestions that belong under that
+    // cursor are a later step (DESIGN2 item 6).
+    LaunchedEffect(showRecentRequest) {
+        if (showRecentRequest == 0) return@LaunchedEffect
+        if (!settings.appListSearch) return@LaunchedEffect
+        if (!appListVisible) {
+            appListVisible = true
+            openAnim.snapTo(openDistancePx)
+        }
+        focusSearchRequest++
     }
 
     fun closeAppList(snap: Boolean = false) {
@@ -722,10 +791,14 @@ fun HomeRoute(
                 visible = appListVisible,
                 favoriteKeys = remember(favoriteKeys) { favoriteKeys.toSet() },
                 onLaunch = { appInfo ->
-                    if (appInfo.kind == EntryKind.SEARCH) {
+                    if (appInfo.kind == EntryKind.RECENT) {
+                        // The one row that wants the list left where it is: what it asks for
+                        // is this list's own search field.
+                        launchEntry(appInfo)
+                    } else if (appInfo.kind == EntryKind.SEARCH || appInfo.kind == EntryKind.SETTINGS) {
                         // Nothing is about to take the screen over the way a launched app
-                        // would — the dialog is what comes next, and it needs the overlay
-                        // out of the way to be seen at all.
+                        // would — a dialog or a screen of ours is what comes next, and it
+                        // needs the overlay out of the way to be seen at all.
                         closeAppList()
                         launchEntry(appInfo)
                     } else {
@@ -771,6 +844,7 @@ fun HomeRoute(
                 enterPullPx = openDistancePx - openAnim.value,
                 query = appListQuery,
                 onQueryChange = { appListQuery = it },
+                focusSearchRequest = focusSearchRequest,
                 alignment = settings.appListAlignment,
                 iconSide = settings.iconSide,
             )
@@ -881,6 +955,14 @@ fun HomeRoute(
                     state = scrub,
                     listOpen = appListVisible,
                     onDismiss = { closeAppList() },
+                    onReleaseLetter = { target ->
+                        if (target == GLYPH_FAVORITES) {
+                            closeAppList()
+                            true
+                        } else {
+                            false
+                        }
+                    },
                     onOpen = {
                         appListVisible = true
                         // Opened by touching the edge, so there is nothing to animate in.

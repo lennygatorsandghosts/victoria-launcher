@@ -18,8 +18,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -54,6 +56,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
@@ -220,6 +223,12 @@ fun AppListScreen(
     searchAtBottom: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
+    /**
+     * Bumped to put the cursor in the search field. An Int rather than a Boolean so a second
+     * press while the field is already focused still counts as a press. Ignored when there is
+     * no field, which is the one setting that can take it away.
+     */
+    focusSearchRequest: Int = 0,
     alignment: HomeAlignment,
     iconSide: IconSide,
 ) {
@@ -239,22 +248,35 @@ fun AppListScreen(
     val scrubY = remember(scrub) { scrub::currentY }
     val pullPx = remember(scrub) { scrub::currentPull }
 
+    var searchHasFocus by remember { mutableStateOf(false) }
     // Searching is a different mode from scrubbing: the letters shrink to whatever matched,
     // so the strip is hidden and placement stays out of it until the query is cleared.
     val searchActive = searchEnabled || forceSearchVisible
     val searching = searchActive && query.isNotBlank()
-    val displayModel = remember(model, searchModel, query, searchActive) {
-        if (!searching) {
-            model
-        } else {
-            val term = query.trim()
-            searchModel.filtered { app ->
-                displayName(app).contains(term, ignoreCase = true) ||
-                    // An app names itself in the language of the device, so on a Japanese
-                    // phone Settings calls itself 設定 and no amount of typing "settings"
-                    // reaches it. Package names are ASCII almost without exception, so the
-                    // English word is usually sitting right there in com.android.settings.
-                    app.componentName.packageName.contains(term, ignoreCase = true)
+    val showingRecent = searchActive && searchHasFocus && query.isBlank()
+    val searchRowsMode = searching || showingRecent
+    val recentCaption = stringResource(R.string.applist_recently_installed)
+    val displayModel = remember(model, searchModel, query, searchActive, showingRecent, hiddenApps, recentCaption) {
+        when {
+            showingRecent -> AppListModel(
+                rows = listOf(AppListRow.Header(recentCaption, indexChar = null)) +
+                    recentlyInstalled(
+                        rows = searchModel.rows.mapNotNull { (it as? AppListRow.Entry)?.app },
+                        hidden = hiddenApps,
+                    ).map { AppListRow.Entry(it) },
+                letterIndex = emptyList(),
+            )
+            !searching -> model
+            else -> {
+                val term = query.trim()
+                searchModel.filtered { app ->
+                    displayName(app).contains(term, ignoreCase = true) ||
+                        // An app names itself in the language of the device, so on a Japanese
+                        // phone Settings calls itself 設定 and no amount of typing "settings"
+                        // reaches it. Package names are ASCII almost without exception, so the
+                        // English word is usually sitting right there in com.android.settings.
+                        app.componentName.packageName.contains(term, ignoreCase = true)
+                }
             }
         }
     }
@@ -275,8 +297,8 @@ fun AppListScreen(
     // Each query is a fresh list, so it starts at the top. Without this the offset from
     // whatever was scrolled before carries over, and a query with few matches lands the
     // results somewhere past the end of the screen.
-    LaunchedEffect(query) {
-        if (query.isNotBlank()) listState.scrollToItem(0)
+    LaunchedEffect(query, showingRecent) {
+        if (query.isNotBlank() || showingRecent) listState.scrollToItem(0)
     }
 
     // Rows outside the scrubbed letter fade out; the section itself never moves, because it
@@ -366,6 +388,18 @@ fun AppListScreen(
     // composed while hidden: the tail padding and the collapse transform from the last scrub
     // would otherwise still be there the next time it opens.
     val focusManager = LocalFocusManager.current
+
+    // Only ever attached to the one field that is actually composed — top or bottom, never
+    // both — so requesting focus can only ever reach that one.
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(focusSearchRequest) {
+        if (focusSearchRequest == 0 || !searchActive) return@LaunchedEffect
+        // The overlay stays composed while hidden, so the field is normally there to focus;
+        // a request that arrives in the frame before it is attached throws rather than
+        // waiting, and a cursor that did not appear is not worth a crash.
+        runCatching { searchFocus.requestFocus() }
+    }
+
     LaunchedEffect(visible) {
         if (!visible) {
             focusManager.clearFocus()
@@ -770,6 +804,8 @@ fun AppListScreen(
                 activeSide = activeSide,
                 showAlphabet = showAlphabet,
                 focusSearchTick = focusSearchTick,
+                focusRequester = searchFocus,
+                onFocusChange = { searchHasFocus = it },
                 modifier = Modifier.onSizeChanged { searchHeightPx = it.height },
             )
         }
@@ -819,7 +855,7 @@ fun AppListScreen(
             // own content allows.
             contentPadding = with(density) {
                 val top = when {
-                    searching -> SEARCH_EDGE_PADDING
+                    searchRowsMode -> SEARCH_EDGE_PADDING
                     scrubLetter != null || !highlightRange.isEmpty() -> sectionTopPx.toDp()
                     else -> restingTopPadding
                 }
@@ -831,7 +867,7 @@ fun AppListScreen(
                     start = if (showAlphabet && activeSide == EdgeSide.LEFT) STRIP_INSET else 0.dp,
                     end = if (showAlphabet && activeSide == EdgeSide.RIGHT) STRIP_INSET else 0.dp,
                     top = top,
-                    bottom = if (searching) SEARCH_EDGE_PADDING else restingBottomPadding,
+                    bottom = if (searchRowsMode) SEARCH_EDGE_PADDING else restingBottomPadding,
                 )
             },
         ) {
@@ -932,12 +968,14 @@ fun AppListScreen(
                 activeSide = activeSide,
                 showAlphabet = showAlphabet,
                 focusSearchTick = focusSearchTick,
+                focusRequester = searchFocus,
+                onFocusChange = { searchHasFocus = it },
                 atBottom = true,
             )
         }
         }
 
-        if (showAlphabet && !searching) {
+        if (showAlphabet && !searchRowsMode) {
             EdgeScrubber(
                 letters = displayModel.letters,
                 scrubY = scrubY,
@@ -965,12 +1003,14 @@ fun AppListScreen(
 
         // Bubble for the current letter, dragged out from the strip and springing back.
         if (scrubLetter != null) {
-            val bubble = 72.dp
+            val target = scrubLetter
+            val bubble = 44.dp
             val halfPx = with(density) { (bubble / 2).toPx() }
             val insetPx = with(density) { SCRUB_BUBBLE_INSET_DP.dp.toPx() }
+            val bubbleTint = Color(0xFF202124)
             Surface(
-                color = Color.Black.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(22.dp),
+                color = Color.White.copy(alpha = 0.85f),
+                shape = CircleShape,
                 modifier = Modifier
                     .align(if (activeSide == EdgeSide.LEFT) Alignment.TopStart else Alignment.TopEnd)
                     .offset {
@@ -983,12 +1023,20 @@ fun AppListScreen(
                     .size(bubble),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        scrubLetter.toString(),
-                        color = Color.White,
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    if (isStripGlyph(target)) {
+                        StripGlyphIcon(
+                            glyph = target,
+                            tint = bubbleTint,
+                            modifier = Modifier.size(if (target == GLYPH_LAUNCHER) 18.dp else 24.dp),
+                        )
+                    } else {
+                        Text(
+                            target.toString(),
+                            color = bubbleTint,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
         }
@@ -1192,10 +1240,11 @@ private fun SearchField(
     activeSide: EdgeSide,
     showAlphabet: Boolean,
     focusSearchTick: Int,
+    focusRequester: FocusRequester,
+    onFocusChange: (Boolean) -> Unit,
     atBottom: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(focusSearchTick) {
@@ -1241,6 +1290,7 @@ private fun SearchField(
         ),
         modifier = modifier
             .focusRequester(focusRequester)
+            .onFocusChanged { onFocusChange(it.isFocused) }
             // The overlay draws under both system bars, so without this the field sits behind
             // the clock at the top, or the gesture pill at the bottom.
             .then(
