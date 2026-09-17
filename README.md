@@ -1,3 +1,30 @@
+# Vicky+
+
+> **Vicky+ is a personal fork of [Victoria Launcher](https://github.com/adelmonte/victoria-launcher)**
+> by adelmonte, who did all the real work. It installs beside the original
+> (`org.lemmyorleans.vickyplus`) and tracks upstream closely.
+>
+> **What the fork adds**
+> - **Pinned shortcuts** — "Add to Home screen" from a browser, and any other app's pinned
+>   shortcut, become ordinary entries: favorites, the A-Z list, folders, rename, custom icon.
+> - **A search button** — an entry that asks for a query and opens a URL template of your
+>   choosing (for example your own SearXNG instance) in your browser.
+> - **A stricter settings import** — the file is size-capped, type-checked and limited to
+>   known settings before anything is written. Exports from stock Victoria still import.
+>
+> Like the original it asks for no network permission: the search button only hands an
+> address to your browser.
+>
+> **Verifying a download.** Releases here are signed on the maintainer's machine. The
+> signing certificate's SHA-256 fingerprint is
+> `C9:79:FE:45:9A:6D:C6:33:0F:BD:A6:6F:6F:29:DA:6B:6C:B3:08:09:4F:7D:3E:61:40:1E:C1:01:CA:89:17:57`
+> — check it with `apksigner verify --print-certs` or AppVerifier. It is **not** the
+> original's key, so this is a separate app rather than an update to Victoria.
+>
+> Everything below is the original project's README.
+
+---
+
 # Victoria Launcher
 
 An open source alternative to [Niagara Launcher](https://niagaralauncher.app) — a
