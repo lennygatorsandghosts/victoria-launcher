@@ -77,7 +77,7 @@ import dev.victorialauncher.data.IconShape
 import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
-import dev.victorialauncher.data.QuickLaunchSlot
+import dev.victorialauncher.data.ButtonSlot
 import dev.victorialauncher.data.IconPackRepository
 import dev.victorialauncher.data.SearchUrl
 import dev.victorialauncher.data.TextColorMode
@@ -166,9 +166,10 @@ fun SettingsScreen(
     onSetAppListSearch: (Boolean) -> Unit,
     onSetAppListSearchBottom: (Boolean) -> Unit,
     onSetAppListSearchHidden: (Boolean) -> Unit,
-    quickLaunchLeftLabel: String?,
-    quickLaunchRightLabel: String?,
-    onOpenQuickLaunchPicker: (QuickLaunchSlot) -> Unit,
+    vbuttonEnabled: Boolean,
+    vbuttonActionLabels: Map<ButtonSlot, String>,
+    onSetVButtonEnabled: (Boolean) -> Unit,
+    onOpenButtonActionPicker: (ButtonSlot) -> Unit,
     onSetAlignment: (HomeAlignment) -> Unit,
     onSetAppListAlignment: (HomeAlignment) -> Unit,
     onSetIconSide: (IconSide) -> Unit,
@@ -403,18 +404,6 @@ fun SettingsScreen(
                     RowDivider()
                     SwitchRow(stringResource(R.string.settings_show_alphabet), showAlphabet, onSetShowAlphabet)
                     RowDivider()
-                    QuickLaunchRow(
-                        label = stringResource(R.string.settings_quick_launch_left),
-                        value = quickLaunchLeftLabel,
-                        onClick = { onOpenQuickLaunchPicker(QuickLaunchSlot.LEFT) },
-                    )
-                    RowDivider()
-                    QuickLaunchRow(
-                        label = stringResource(R.string.settings_quick_launch_right),
-                        value = quickLaunchRightLabel,
-                        onClick = { onOpenQuickLaunchPicker(QuickLaunchSlot.RIGHT) },
-                    )
-                    RowDivider()
                     SwitchRowWithDetail(
                         label = stringResource(R.string.settings_swipe_up_list),
                         detail = stringResource(R.string.settings_swipe_up_list_detail),
@@ -479,6 +468,36 @@ fun SettingsScreen(
                             AccessibilityActions(onOpenAccessibilitySettings, onOpenAppInfo)
                         }
                     }
+                }
+            }
+
+            item {
+                Section(stringResource(R.string.settings_section_vicky_button)) {
+                    SwitchRow(stringResource(R.string.settings_vicky_button_show), vbuttonEnabled, onSetVButtonEnabled)
+                    RowDivider()
+                    ButtonActionRow(
+                        label = stringResource(R.string.vicky_button_edit_tap),
+                        value = vbuttonActionLabels[ButtonSlot.TAP].orEmpty(),
+                        onClick = { onOpenButtonActionPicker(ButtonSlot.TAP) },
+                    )
+                    RowDivider()
+                    ButtonActionRow(
+                        label = stringResource(R.string.vicky_button_edit_swipe_up),
+                        value = vbuttonActionLabels[ButtonSlot.SWIPE_UP].orEmpty(),
+                        onClick = { onOpenButtonActionPicker(ButtonSlot.SWIPE_UP) },
+                    )
+                    RowDivider()
+                    ButtonActionRow(
+                        label = stringResource(R.string.vicky_button_edit_swipe_left),
+                        value = vbuttonActionLabels[ButtonSlot.SWIPE_LEFT].orEmpty(),
+                        onClick = { onOpenButtonActionPicker(ButtonSlot.SWIPE_LEFT) },
+                    )
+                    RowDivider()
+                    ButtonActionRow(
+                        label = stringResource(R.string.vicky_button_edit_swipe_right),
+                        value = vbuttonActionLabels[ButtonSlot.SWIPE_RIGHT].orEmpty(),
+                        onClick = { onOpenButtonActionPicker(ButtonSlot.SWIPE_RIGHT) },
+                    )
                 }
             }
 
@@ -1324,7 +1343,7 @@ private fun searchUrlErrorMessage(reason: SearchUrl.Reason): String? = when (rea
 }
 
 @Composable
-private fun QuickLaunchRow(label: String, value: String?, onClick: () -> Unit) {
+private fun ButtonActionRow(label: String, value: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1332,7 +1351,7 @@ private fun QuickLaunchRow(label: String, value: String?, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyMedium)
             Text(
-                value ?: stringResource(R.string.settings_quick_launch_none),
+                value,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             )

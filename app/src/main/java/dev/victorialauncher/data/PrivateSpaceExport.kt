@@ -26,6 +26,10 @@ internal const val PREF_ICON_OVERRIDES = "icon_overrides_json"
 internal const val PREF_LAUNCH_COUNTS = "launch_counts_json"
 internal const val PREF_QUICK_LAUNCH_LEFT = "quick_launch_left_key"
 internal const val PREF_QUICK_LAUNCH_RIGHT = "quick_launch_right_key"
+internal const val PREF_VBUTTON_TAP = "vbutton_tap"
+internal const val PREF_VBUTTON_SWIPE_UP = "vbutton_swipe_up"
+internal const val PREF_VBUTTON_SWIPE_LEFT = "vbutton_swipe_left"
+internal const val PREF_VBUTTON_SWIPE_RIGHT = "vbutton_swipe_right"
 
 /**
  * Strips every second profile's keys out of one stored preference's value, given the DataStore
@@ -72,6 +76,15 @@ fun stripPrivateSpaceFromExport(name: String, value: Any, stripOtherProfiles: Bo
             // private key straight back out.
             val key = value as? String ?: return value
             if (isPrivate(key)) null else key
+        }
+        PREF_VBUTTON_TAP, PREF_VBUTTON_SWIPE_UP, PREF_VBUTTON_SWIPE_LEFT, PREF_VBUTTON_SWIPE_RIGHT -> {
+            val raw = value as? String ?: return value
+            val action = ButtonAction.parse(raw)
+            if (action is ButtonAction.LaunchEntry && isPrivate(action.key)) {
+                null
+            } else {
+                raw
+            }
         }
         else -> value
     }

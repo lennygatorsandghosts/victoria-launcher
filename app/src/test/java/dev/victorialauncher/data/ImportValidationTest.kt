@@ -460,6 +460,51 @@ class ImportValidationTest {
         assertEquals("", parsed.value("search_url_template"))
     }
 
+    // --- the Vicky+ button actions: stored strings, but only recognized actions are importable ---
+
+    @Test
+    fun `usable Vicky button actions import`() {
+        val text = envelopeOf(
+            "vbutton_tap" to """{"type":"string","value":"web"}""",
+            "vbutton_swipe_up" to """{"type":"string","value":"apps"}""",
+            "vbutton_swipe_left" to """{"type":"string","value":"entry:com.example/com.example.Main"}""",
+            "vbutton_swipe_right" to """{"type":"string","value":"url:https://example.org"}""",
+            "vbutton_enabled" to """{"type":"boolean","value":false}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals("web", parsed.value("vbutton_tap"))
+        assertEquals("apps", parsed.value("vbutton_swipe_up"))
+        assertEquals("entry:com.example/com.example.Main", parsed.value("vbutton_swipe_left"))
+        assertEquals("url:https://example.org", parsed.value("vbutton_swipe_right"))
+        assertEquals(false, parsed.value("vbutton_enabled"))
+    }
+
+    @Test
+    fun `unrecognized Vicky button actions are dropped while neighbours import`() {
+        val text = envelopeOf(
+            "vbutton_tap" to """{"type":"string","value":"unknown"}""",
+            "vbutton_swipe_up" to """{"type":"string","value":"url:javascript:alert(1)"}""",
+            "vbutton_swipe_left" to """{"type":"string","value":"entry:"}""",
+            "search_label" to """{"type":"string","value":"Find"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertNull(parsed.value("vbutton_tap"))
+        assertNull(parsed.value("vbutton_swipe_up"))
+        assertNull(parsed.value("vbutton_swipe_left"))
+        assertEquals("Find", parsed.value("search_label"))
+    }
+
+    @Test
+    fun `Vicky button action strings over 512 characters are dropped`() {
+        val text = envelopeOf(
+            "vbutton_tap" to """{"type":"string","value":"entry:${"a".repeat(512)}"}""",
+            "search_label" to """{"type":"string","value":"Find"}""",
+        )
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertNull(parsed.value("vbutton_tap"))
+        assertEquals("Find", parsed.value("search_label"))
+    }
+
     // --- charset ---
 
     @Test

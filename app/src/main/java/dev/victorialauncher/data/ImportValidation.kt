@@ -57,7 +57,12 @@ internal class ParsedExport(val values: List<Pair<Preferences.Key<*>, Any>>)
  * ImportValidationTest fails if a numeric key is added without one, the same way the
  * allow-list-coverage test already does for a missing key.
  */
-internal data class KnownPreference(val type: ExpectedType, val range: NumericRange? = null)
+internal data class KnownPreference(
+    val type: ExpectedType,
+    val range: NumericRange? = null,
+    val maxStringLength: Int = MAX_STRING_VALUE_LENGTH,
+    val stringValidator: ((String) -> Boolean)? = null,
+)
 
 /** A closed range for one INT or FLOAT preference; see [KnownPreference.range]. */
 internal sealed class NumericRange {
@@ -144,6 +149,11 @@ internal fun parseSettingsExport(
             if (ExpectedType.fromTag(entry.optString("type", "")) != expected.type) return@forEach
             var value = readTypedValue(entry, expected.type) ?: return@forEach
             if (!isInDeclaredRange(value, expected.range)) return@forEach
+            if (value is String) {
+                if (value.length > expected.maxStringLength) return@forEach
+                val validator = expected.stringValidator
+                if (validator != null && !validator(value)) return@forEach
+            }
             if (name in JSON_STRING_KEYS) {
                 value = sanitizeJsonStringValue(name, value as String) ?: return@forEach
             }

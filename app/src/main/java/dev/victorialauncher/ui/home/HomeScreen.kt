@@ -13,7 +13,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.draggable
@@ -101,7 +100,6 @@ import androidx.compose.ui.unit.sp
 import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.Folder
-import dev.victorialauncher.data.QuickLaunchSlot
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.HomePaddings
@@ -211,8 +209,6 @@ fun HomeScreen(
     /** Total distance dragged up past the end, and this frame's share of it. */
     onSwipeUpDrag: (total: Float, delta: Float) -> Unit,
     onSwipeUpEnd: (velocity: Float) -> Unit,
-    quickLaunchEnabled: Boolean,
-    onQuickLaunch: (QuickLaunchSlot) -> Unit,
     onPeekStatusBar: () -> Unit,
     onExpandShade: () -> Unit,
     onManageFavorites: () -> Unit,
@@ -376,7 +372,6 @@ fun HomeScreen(
 
     val peekPullPx = with(density) { 30.dp.toPx() }
     val deepPullPx = with(density) { 200.dp.toPx() }
-    val quickLaunchPx = with(density) { 80.dp.toPx() }
     var rawPullDown by remember { mutableFloatStateOf(0f) }
     var rawPullUp by remember { mutableFloatStateOf(0f) }
     var pullActionFired by remember { mutableStateOf(false) }
@@ -479,39 +474,6 @@ fun HomeScreen(
                         ),
                     )
                 },
-            )
-            .then(
-                // Only worth a pointer handler when something is actually bound to it.
-                if (quickLaunchEnabled) {
-                    Modifier.pointerInput(editMode, contentHeight) {
-                        var eligible = false
-                        var travelled = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = { start ->
-                                // The empty space under the whole stack. Anywhere higher is a
-                                // row, the widget, or Now Playing, and belongs to them.
-                                eligible = !editMode && start.y > offsetY.value + contentHeight
-                                travelled = 0f
-                            },
-                            onDragEnd = {
-                                if (eligible && abs(travelled) > quickLaunchPx) {
-                                    onQuickLaunch(
-                                        if (travelled < 0f) QuickLaunchSlot.LEFT else QuickLaunchSlot.RIGHT
-                                    )
-                                }
-                                eligible = false
-                            },
-                            onDragCancel = { eligible = false },
-                        ) { change, dx ->
-                            if (eligible) {
-                                change.consume()
-                                travelled += dx
-                            }
-                        }
-                    }
-                } else {
-                    Modifier
-                }
             )
             // Rows, the widget and the edge zones all claim their own presses, so the only
             // thing that reaches this is bare wallpaper — which until now was the one part of

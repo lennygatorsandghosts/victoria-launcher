@@ -153,6 +153,99 @@ class AppRepository(
     private fun hasShortcutHostPermission(): Boolean =
         runCatching { launcherApps.hasShortcutHostPermission() }.getOrDefault(false)
 
+    fun listShortcutsForAction(): List<ShortcutCandidate> {
+        if (!hasShortcutHostPermission()) return emptyList()
+        val mainUser = Process.myUserHandle()
+        val profiles = runCatching { userManager.userProfiles }.getOrNull().orEmpty()
+        val gathered = mutableListOf<ShortcutCandidate>()
+
+        fun sorted(): List<ShortcutCandidate> =
+            groupShortcutCandidates(gathered, ShortcutCandidate::appLabel, ShortcutCandidate::label)
+                .flatMap { it.shortcuts }
+
+        for (user in profiles) {
+            val serial = listableSerial(user, mainUser) ?: continue
+            val appLabels = runCatching { launcherApps.getActivityList(null, user) }
+                .getOrNull()
+                .orEmpty()
+                .groupBy { it.componentName.packageName }
+                .mapValues { (_, activities) ->
+                    activities
+                        .map { it.label?.toString().orEmpty() }
+                        .filter { it.isNotBlank() }
+                        .minByOrNull { it.lowercase() }
+                        .orEmpty()
+                }
+            val query = LauncherApps.ShortcutQuery()
+                .setQueryFlags(
+                    LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
+                        LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+                        LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED,
+                )
+            val shortcuts = try {
+                launcherApps.getShortcuts(query, user).orEmpty()
+            } catch (e: SecurityException) {
+                return sorted()
+            } catch (e: IllegalStateException) {
+                return sorted()
+            }
+            gathered += shortcuts.mapNotNull { info ->
+                val id = info.id
+                if (!EntryKeys.isStorableShortcutId(id)) return@mapNotNull null
+                val pkg = info.`package`
+                ShortcutCandidate(
+                    packageName = pkg,
+                    shortcutId = id,
+                    label = info.shortLabel?.toString()
+                        ?: info.longLabel?.toString()
+                        ?: id,
+                    user = user,
+                    isPinned = info.isPinned,
+                    key = EntryKeys.shortcut(pkg, id, serial),
+                    appLabel = appLabels[pkg].orEmpty().ifBlank { pkg },
+                )
+            }
+        }
+        return sorted()
+    }
+
+    /**
+     * Pins [c] for a button action, keeping the package's other pins.
+     *
+     * [knownPinned] is every id of that package (same user) the picker listed as pinned when
+     * the list was built. pinShortcuts REPLACES the whole set, so if the fresh read comes back
+     * short of any of them the read is not trusted and nothing is written: better to refuse
+     * than to unpin a bookmark the user never touched.
+     */
+    suspend fun pinForAction(c: ShortcutCandidate, knownPinned: Collection<String>): String? = withContext(Dispatchers.IO) {
+        if (!hasShortcutHostPermission()) return@withContext null
+        if (!EntryKeys.isStorableShortcutId(c.shortcutId)) return@withContext null
+        val serial = listableSerial(c.user, Process.myUserHandle()) ?: return@withContext null
+        if (EntryKeys.shortcut(c.packageName, c.shortcutId, serial) != c.key) return@withContext null
+        if (c.isPinned) return@withContext c.key
+
+        val query = LauncherApps.ShortcutQuery()
+            .setQueryFlags(LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED)
+            .setPackage(c.packageName)
+        val current = try {
+            launcherApps.getShortcuts(query, c.user).orEmpty().map { it.id }
+        } catch (e: SecurityException) {
+            return@withContext null
+        } catch (e: IllegalStateException) {
+            return@withContext null
+        }
+
+        if (!PinnedShortcuts.readLooksComplete(current, knownPinned)) return@withContext null
+
+        val pinned = runCatching {
+            launcherApps.pinShortcuts(c.packageName, PinnedShortcuts.withAdded(current, c.shortcutId), c.user)
+        }.isSuccess
+        if (!pinned) return@withContext null
+        if (!waitUntilPinned(c.packageName, c.shortcutId, c.user)) return@withContext null
+        noteShortcutsChanged()
+        c.key
+    }
+
     private fun pinnedShortcuts(mainUser: UserHandle = Process.myUserHandle()): List<PinnedShortcut> {
         if (!hasShortcutHostPermission()) return emptyList()
         val profiles = runCatching { userManager.userProfiles }.getOrNull().orEmpty()
