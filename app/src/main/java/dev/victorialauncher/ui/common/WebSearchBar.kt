@@ -59,7 +59,8 @@ fun WebSearchBar(
     BackHandler(onBack = onDismiss)
 
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        // Compose can throw if the node is not yet attached.
+        runCatching { focusRequester.requestFocus() }
         keyboard?.show()
     }
 

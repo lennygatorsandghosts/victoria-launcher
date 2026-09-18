@@ -4,6 +4,8 @@ package dev.victorialauncher.data
 import java.net.URI
 import java.net.URISyntaxException
 
+internal const val MAX_URL_LENGTH = 512
+
 sealed interface ButtonAction {
     fun encode(): String = when (this) {
         None -> "none"
@@ -30,7 +32,6 @@ sealed interface ButtonAction {
     companion object {
         private const val ENTRY_PREFIX = "entry:"
         private const val URL_PREFIX = "url:"
-        private const val MAX_URL_LENGTH = 512
 
         fun parse(value: String?): ButtonAction? {
             val raw = value?.trim() ?: return null

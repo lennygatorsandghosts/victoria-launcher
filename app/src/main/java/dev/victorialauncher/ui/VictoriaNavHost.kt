@@ -571,7 +571,7 @@ fun VictoriaNavHost(
         vbuttonActions = vbuttonActions,
         // Both flows start null/true so nothing is centered or offered before the stored
         // answer arrives; a legacy install is stamped 0 and never enters either path.
-        centerFavorites = layoutDefaultsVersion == 1 && !hasCustomLayout,
+        centerFavorites = layoutDefaultsVersion?.let { it >= 1 } == true && !hasCustomLayout,
         dimWallpaperAlpha = dimWallpaperAlpha,
         dimHomeAlpha = dimHomeAlpha,
         dimColor = dimColor,
@@ -927,26 +927,43 @@ fun VictoriaNavHost(
             val slot = runCatching {
                 ButtonSlot.valueOf(entry.arguments?.getString("slot").orEmpty())
             }.getOrDefault(ButtonSlot.TAP)
+            val privateSerial = privateSpace.serial
+            val isPrivateRow = remember(privateSerial) {
+                { info: AppInfo -> privateSerial != 0L && info.userSerial == privateSerial }
+            }
+            val privateSectionTitle = stringResource(R.string.private_space)
+            val launcherSectionTitle = stringResource(R.string.vicky_section)
             val pickerModel by produceState(
                 initialValue = AppListModel(emptyList(), emptyList()),
                 allApps,
-                hiddenApps,
                 nameOverrides,
+                isPrivateRow,
+                privateSectionTitle,
+                launcherSectionTitle,
                 if (sortByUsage) launchCounts else emptyMap(),
             ) {
                 val counts = if (sortByUsage) launchCounts else emptyMap()
                 value = withContext(Dispatchers.Default) {
                     buildAppListModel(
                         allApps,
-                        hiddenApps,
+                        emptySet(),
                         { nameOverrides[it.key] ?: it.label },
                         counts,
                         englishName = { app.appRepository.englishLabel(it) },
+                        isPrivateRow = isPrivateRow,
+                        privateSectionTitle = privateSectionTitle,
+                        launcherSectionTitle = launcherSectionTitle,
                     )
                 }
             }
-            val shortcutCandidates by produceState(initialValue = emptyList<ShortcutCandidate>(), slot) {
-                value = withContext(Dispatchers.IO) { app.appRepository.listShortcutsForAction() }
+            val shortcutCandidates by produceState(
+                initialValue = emptyList<ShortcutCandidate>(),
+                slot,
+                allApps,
+                privateSpace,
+            ) {
+                val candidates = withContext(Dispatchers.IO) { app.appRepository.listShortcutsForAction() }
+                value = candidates.filterNot { privateSpace.conceals(it.key) }
             }
             val currentAction = vbuttonActions[slot] ?: ButtonAction.None
             ButtonActionPickerScreen(
@@ -958,9 +975,10 @@ fun VictoriaNavHost(
                 },
                 current = currentAction,
                 model = pickerModel,
+                currentLabel = { key -> appsByKey[key]?.let { nameOverrides[it.key] ?: it.label } },
                 nameOverrides = nameOverrides,
                 iconSizeDp = iconSizeDp,
-                hasPrivateSpace = privateSpace != PrivateSpace.Absent,
+                hasPrivateSpace = privateSpace.offersPadlockRow,
                 onPick = { action ->
                     scope.launch { app.prefs.setVButtonAction(slot, action.encode()) }
                     navController.popBackStack()
@@ -972,10 +990,17 @@ fun VictoriaNavHost(
                         current = currentAction,
                         onPick = { candidate ->
                             scope.launch {
-                                val knownPinned = shortcutCandidates
-                                    .filter { it.isPinned && it.packageName == candidate.packageName && it.user == candidate.user }
-                                    .map { it.shortcutId }
-                                val key = app.appRepository.pinForAction(candidate, knownPinned)
+                                val currentPrivateSpace = withContext(Dispatchers.Default) {
+                                    app.appRepository.privateSpace()
+                                }
+                                val key = if (currentPrivateSpace.conceals(candidate.key)) {
+                                    null
+                                } else {
+                                    val knownPinned = shortcutCandidates
+                                        .filter { it.isPinned && it.packageName == candidate.packageName && it.user == candidate.user }
+                                        .map { it.shortcutId }
+                                    app.appRepository.pinForAction(candidate, knownPinned)
+                                }
                                 if (key == null) {
                                     Toast.makeText(
                                         context,

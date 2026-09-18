@@ -480,6 +480,21 @@ class ImportValidationTest {
     }
 
     @Test
+    fun `a max length OpenUrl action round-trips and imports`() {
+        val prefix = "https://example.org/?q="
+        val url = prefix + "a".repeat(MAX_URL_LENGTH - prefix.length)
+        val encoded = "url:$url"
+
+        val action = ButtonAction.parse(encoded)
+        assertEquals(ButtonAction.OpenUrl(url), action)
+        assertEquals(encoded, action!!.encode())
+
+        val text = envelopeOf("vbutton_tap" to """{"type":"string","value":${JSONObject.quote(encoded)}}""")
+        val parsed = parseSettingsExport(text, Prefs.importAllowList)!!
+        assertEquals(encoded, parsed.value("vbutton_tap"))
+    }
+
+    @Test
     fun `unrecognized Vicky button actions are dropped while neighbours import`() {
         val text = envelopeOf(
             "vbutton_tap" to """{"type":"string","value":"unknown"}""",
