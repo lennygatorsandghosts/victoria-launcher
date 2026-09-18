@@ -66,9 +66,11 @@ class SearchSettingsSaveOnLeaveTest {
         val urlFieldLabel = instrumentation.targetContext.getString(R.string.settings_search_button_url)
 
         LauncherTestUtils.openAppList()
-        // Filtering by its own label leaves the "Vicky+ settings" row of the Vicky+ section on
-        // screen — reachable without scrolling however many apps happen to be on this device.
-        LauncherTestUtils.filterAppList(settingsLabel)
+        // Filtering by a prefix of its label leaves the "Vicky+ settings" row of the Vicky+
+        // section on screen — reachable without scrolling however many apps happen to be on this
+        // device. A prefix rather than the whole label, so that the text typed into the search
+        // field is not itself a match for the row's label when the row is looked up below.
+        LauncherTestUtils.filterAppList(settingsLabel.take(9))
         assertTrue("expected the Settings row", LauncherTestUtils.waitForText(settingsLabel))
         device.findObject(By.text(settingsLabel)).click()
 
