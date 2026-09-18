@@ -207,9 +207,9 @@ class AppRepository(
             val shortcuts = try {
                 launcherApps.getShortcuts(query, user).orEmpty()
             } catch (e: SecurityException) {
-                return sorted()
+                continue
             } catch (e: IllegalStateException) {
-                return sorted()
+                continue
             }
             gathered += shortcuts.mapNotNull { info ->
                 val id = info.id

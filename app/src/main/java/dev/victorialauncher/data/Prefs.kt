@@ -63,7 +63,11 @@ private fun stringSet() = KnownPreference(ExpectedType.STRING_SET)
 private fun int(min: Int, max: Int) = KnownPreference(ExpectedType.INT, NumericRange.OfInt(min, max))
 private fun float(min: Float, max: Float) = KnownPreference(ExpectedType.FLOAT, NumericRange.OfFloat(min, max))
 private fun buttonActionString() =
-    KnownPreference(ExpectedType.STRING, maxStringLength = 512, stringValidator = { ButtonAction.parse(it) != null })
+    KnownPreference(
+        ExpectedType.STRING,
+        maxStringLength = "url:".length + MAX_URL_LENGTH,
+        stringValidator = { ButtonAction.parse(it) != null },
+    )
 
 /** [json] to write out, and whether anything belonging to the private space was left out of it. */
 data class ExportResult(val json: String, val omittedPrivateSpace: Boolean)

@@ -384,12 +384,12 @@ fun HomeRoute(
     // the list with the cursor in its search field; the suggestions that belong under that
     // cursor are a later step (DESIGN2 item 6).
     LaunchedEffect(showRecentRequest) {
-        if (showRecentRequest == 0) return@LaunchedEffect
-        if (!settings.appListSearch) return@LaunchedEffect
+        if (showRecentRequest == 0 || homeEditMode || bandEditMode) return@LaunchedEffect
         if (!appListVisible) {
             appListVisible = true
             openAnim.snapTo(openDistancePx)
         }
+        appListForceSearch = true
         focusSearchRequest++
     }
 

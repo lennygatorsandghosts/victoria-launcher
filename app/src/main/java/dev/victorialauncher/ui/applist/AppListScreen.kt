@@ -1211,7 +1211,8 @@ private fun SearchField(
 
     LaunchedEffect(focusSearchTick) {
         if (focusSearchTick > 0) {
-            focusRequester.requestFocus()
+            // Compose can throw if the node is not yet attached.
+            runCatching { focusRequester.requestFocus() }
             keyboard?.show()
         }
     }

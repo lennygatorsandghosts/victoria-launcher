@@ -47,6 +47,7 @@ fun ButtonActionPickerScreen(
     title: String,
     current: ButtonAction,
     model: AppListModel,
+    currentLabel: (String) -> String?,
     nameOverrides: Map<String, String>,
     iconSizeDp: Int,
     hasPrivateSpace: Boolean,
@@ -77,12 +78,7 @@ fun ButtonActionPickerScreen(
             item {
                 SectionHeader("Current")
                 Text(
-                    actionLabel(current) { key -> model.rows.asSequence()
-                        .filterIsInstance<AppListRow.Entry>()
-                        .firstOrNull { it.app.key == key }
-                        ?.app
-                        ?.let(::displayName)
-                    },
+                    actionLabel(current, currentLabel),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 )
