@@ -139,13 +139,14 @@ class NiagaraPresetTest {
         LauncherTestUtils.openAppList()
         val settingsLabel =
             InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.action_open_settings)
-        LauncherTestUtils.filterAppList(settingsLabel)
+        // A prefix, so the text typed into the search field is not itself a match for the
+        // row's label when the row is looked up next.
+        LauncherTestUtils.filterAppList(settingsLabel.take(9))
         assertTrue("expected the Settings row", LauncherTestUtils.waitForText(settingsLabel))
         device.findObject(By.text(settingsLabel)).click()
         assertTrue(
-            "expected the Settings screen to open",
-            device.wait(Until.hasObject(By.text(settingsLabel)), 5_000L) ||
-                scrollDownUntilVisible(APPLY_ROW_LABEL),
+            "expected the Settings screen to open, with the Apply row reachable",
+            scrollDownUntilVisible(APPLY_ROW_LABEL),
         )
     }
 

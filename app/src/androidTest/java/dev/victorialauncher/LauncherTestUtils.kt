@@ -56,7 +56,16 @@ object LauncherTestUtils {
         val device = uiDevice()
         val gotIt = device.wait(Until.findObject(By.text("Got it")), 2_000L)
         gotIt?.click()
+        // The one-time "Niagara style" offer takes the welcome dialog's place on an install
+        // whose store already held something when the launcher first ran — which is what a
+        // test that stores a preference in its set-up looks like. Declining leaves every
+        // setting as it was, so the test still measures what it stored.
+        val notNow = device.wait(Until.findObject(By.text("Not now")), 1_000L)
+        notNow?.click()
     }
+
+    private fun UiDevice.displayMetrics() =
+        InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics
 
     /** Bounded retries for [openAppList]; see the comment there for why a single attempt isn't reliable. */
     private const val OPEN_LIST_ATTEMPTS = 3
@@ -101,7 +110,11 @@ object LauncherTestUtils {
         runBlocking { Prefs(context).setAppListSearchEnabled(true) }
 
         val device = uiDevice()
-        val startX = device.displayWidth - 2
+        // Not from the last pixel: the launcher can exempt only a limited band of the edge
+        // from the system's back gesture, and that band follows the favorites. Outside it a
+        // swipe from the very edge is a system Back, which closes the list it just opened.
+        // 40dp in is past the back-gesture inset and still inside the 56dp default edge zone.
+        val startX = device.displayWidth - (40 * device.displayMetrics().density).toInt()
         val endX = (device.displayWidth * 0.6f).toInt()
         for (fraction in OPEN_LIST_HEIGHTS) {
             val y = (device.displayHeight * fraction).toInt()

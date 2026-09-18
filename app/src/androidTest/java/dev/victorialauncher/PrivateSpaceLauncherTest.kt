@@ -319,7 +319,9 @@ class PrivateSpaceLauncherTest {
         // Favorites sit at the bottom, so the empty wallpaper to look for is above them. Tried
         // at a few heights rather than one, because how much of it is empty depends on what is
         // on the home screen.
-        for (fraction in listOf(0.2f, 0.12f, 0.3f)) {
+        // The lower heights are for a layout whose favorites sit at the top of the screen (the
+        // fresh-install default since round 2), where the empty wallpaper is below them.
+        for (fraction in listOf(0.2f, 0.12f, 0.3f, 0.55f, 0.7f)) {
             val y = (device.displayHeight * fraction).toInt()
             device.executeShellCommand("input swipe $x $y $x $y $LONG_PRESS_MS")
             if (device.wait(Until.hasObject(By.text(CHOOSE_FAVORITES_LABEL)), 2_000L)) {
