@@ -190,18 +190,19 @@ class PrivateSectionTest {
     }
 
     /**
-     * A slow drag rather than a fast fling ([steps] this high suppresses fling velocity): the
-     * "Private space" section is as short as two rows (a header and a padlock) when locked, and
-     * a fast fling can jump straight over it between one poll and the next, so this advances the
-     * list by roughly the dragged distance instead of an unpredictable flung one.
+     * A short, slow drag. Two reasons. A fast fling can jump over the two-row locked section
+     * between one poll and the next. And the list closes when it is pulled more than about
+     * 90dp past its end (AppListScreen's pull-to-collapse), so the step that finally brings
+     * the end into view must not overshoot by more than that: 8% of the screen is about
+     * 190px here, under the commit distance, so an overshoot can only stretch, never close.
      */
     private fun swipeListUp() {
         device.swipe(
             device.displayWidth / 2,
-            (device.displayHeight * 0.8f).toInt(),
+            (device.displayHeight * 0.70f).toInt(),
             device.displayWidth / 2,
-            (device.displayHeight * 0.5f).toInt(),
-            60,
+            (device.displayHeight * 0.62f).toInt(),
+            30,
         )
     }
 
@@ -240,7 +241,7 @@ class PrivateSectionTest {
         const val LOCK_LABEL = "Lock private space"
         const val RECENT_LABEL = "Recently installed"
         const val SETTINGS_LABEL = "Vicky+ settings"
-        const val MAX_SCROLL_STEPS = 80
+        const val MAX_SCROLL_STEPS = 160
         const val QUIET_MODE_MS = 15_000L
         const val BUTTON_DESC = "Vicky+ button"
 
