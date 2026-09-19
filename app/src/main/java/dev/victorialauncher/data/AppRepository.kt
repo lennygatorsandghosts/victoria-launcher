@@ -318,7 +318,13 @@ class AppRepository(
      */
     fun appShortcuts(app: AppInfo): List<ShortcutInfo> {
         if (app.kind != EntryKind.APP) return emptyList()
-        val user = app.user ?: Process.myUserHandle()
+        val mainUser = Process.myUserHandle()
+        val user = app.user ?: mainUser
+        // The same per-profile decision the list itself is built by. The row asked about was
+        // listable when it was drawn, but a menu can be opened on a row the list has not yet
+        // been rebuilt without — the space locks on its own when the screen goes off — and a
+        // locked space's apps still answer this query, labels and icons included.
+        if (listableSerial(user, mainUser) == null) return emptyList()
         val flags = LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
             LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
 
