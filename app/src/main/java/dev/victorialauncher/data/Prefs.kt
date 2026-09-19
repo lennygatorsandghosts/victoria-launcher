@@ -77,6 +77,7 @@ class Prefs(private val context: Context) {
         val ALLOW_ROTATION = booleanPreferencesKey("allow_rotation")
         val SWIPE_FOR_SHORTCUTS = booleanPreferencesKey("swipe_for_shortcuts")
         val THEMED_ICONS = booleanPreferencesKey("themed_icons")
+        val SHORTCUT_APP_BADGE = booleanPreferencesKey("shortcut_app_badge")
         val ICON_SHAPE = stringPreferencesKey("icon_shape")
         val HIDE_STATUS_BAR = booleanPreferencesKey("hide_status_bar")
         val HIDE_STATUS_BAR_APPLIST = booleanPreferencesKey("hide_status_bar_applist")
@@ -315,6 +316,8 @@ class Prefs(private val context: Context) {
      * ordinary icon — there is nothing to derive one from.
      */
     val themedIcons: Flow<Boolean> = data.map { it[Keys.THEMED_ICONS] ?: false }.distinctUntilChanged()
+
+    val shortcutAppBadge: Flow<Boolean> = data.map { it[Keys.SHORTCUT_APP_BADGE] ?: true }.distinctUntilChanged()
 
     val iconShape: Flow<IconShape> = data.map { pref ->
         pref[Keys.ICON_SHAPE]?.let { runCatching { IconShape.valueOf(it) }.getOrNull() } ?: IconShape.SYSTEM
@@ -690,6 +693,10 @@ class Prefs(private val context: Context) {
 
     suspend fun setThemedIcons(v: Boolean) {
         context.dataStore.edit { it[Keys.THEMED_ICONS] = v }
+    }
+
+    suspend fun setShortcutAppBadge(v: Boolean) {
+        context.dataStore.edit { it[Keys.SHORTCUT_APP_BADGE] = v }
     }
 
     suspend fun setIconShape(v: IconShape) {

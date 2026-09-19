@@ -10,6 +10,7 @@ import android.content.pm.ShortcutInfo
 import android.content.res.Configuration
 import android.content.res.Resources
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
@@ -45,6 +46,16 @@ class AppRepository(
         get() = context.getSystemService(LauncherApps::class.java)
     private val userManager: UserManager
         get() = context.getSystemService(UserManager::class.java)
+
+    private data class PublisherMemoValue(val app: AppInfo?)
+
+    companion object {
+        private val publisherMemo = ConcurrentHashMap<Pair<String, Long>, PublisherMemoValue>()
+
+        fun clearPublisherMemo() {
+            publisherMemo.clear()
+        }
+    }
 
     /**
      * Every launchable activity across every profile the launcher can see.
@@ -300,9 +311,9 @@ class AppRepository(
 
     /** Badged by the system, so a work or private-space app is recognizable at a glance. */
     fun loadIcon(app: AppInfo): Drawable {
-        // A shortcut's own picture, badged with the app that published it. Falling through
-        // means it has none of its own, and the publisher's app icon below is the answer.
-        if (app.kind == EntryKind.SHORTCUT) shortcutIcon(app)?.let { return it }
+        // A shortcut's own picture, badged for its profile. Falling through means it has none
+        // of its own, and the publisher's app icon below is the answer.
+        if (app.kind == EntryKind.SHORTCUT) shortcutIcon(app, profileBadge = true)?.let { return it }
         val user = app.user
         if (user != null) {
             val activity = runCatching {
@@ -324,11 +335,41 @@ class AppRepository(
         }
     }
 
-    private fun shortcutIcon(app: AppInfo): Drawable? {
+    fun shortcutOwnIcon(app: AppInfo, profileBadge: Boolean): Drawable? =
+        shortcutIcon(app, profileBadge)
+
+    private fun shortcutIcon(app: AppInfo, profileBadge: Boolean): Drawable? {
         val info = findShortcut(app) ?: return null
         val density = context.resources.configuration.densityDpi
+        if (!profileBadge) {
+            return runCatching { launcherApps.getShortcutIconDrawable(info, density) }.getOrNull()
+        }
         return runCatching { launcherApps.getShortcutBadgedIconDrawable(info, density) }.getOrNull()
             ?: runCatching { launcherApps.getShortcutIconDrawable(info, density) }.getOrNull()
+    }
+
+    fun publisherApp(shortcut: AppInfo): AppInfo? {
+        if (shortcut.kind != EntryKind.SHORTCUT) return null
+        val key = shortcut.packageName to shortcut.userSerial
+        publisherMemo[key]?.let { return it.app }
+
+        val user = shortcut.user ?: Process.myUserHandle()
+        val activities = runCatching {
+            launcherApps.getActivityList(shortcut.packageName, user)
+        }.getOrNull().orEmpty()
+        val activity = activities.firstOrNull { it.componentName == shortcut.componentName }
+            ?: activities.firstOrNull()
+        val app = activity?.let { info ->
+            AppInfo(
+                componentName = info.componentName,
+                label = info.label?.toString() ?: info.componentName.packageName,
+                user = user,
+                userSerial = shortcut.userSerial,
+                kind = EntryKind.APP,
+            )
+        }
+        publisherMemo[key] = PublisherMemoValue(app)
+        return app
     }
 
     // An app's label comes back in the device's language, so on a Japanese phone the English

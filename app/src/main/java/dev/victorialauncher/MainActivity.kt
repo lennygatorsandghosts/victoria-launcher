@@ -107,14 +107,16 @@ class MainActivity : ComponentActivity() {
             val showAppIcons by app.prefs.showAppIcons.collectAsState(initial = true)
             val themedIcons by app.prefs.themedIcons.collectAsState(initial = false)
             val iconShape by app.prefs.iconShape.collectAsState(initial = IconShape.SYSTEM)
+            val shortcutAppBadge by app.prefs.shortcutAppBadge.collectAsState(initial = true)
             val iconConfig = remember(
                 iconPackPackage,
                 iconOverrides,
                 showAppIcons,
                 themedIcons,
                 iconShape,
+                shortcutAppBadge,
             ) {
-                IconConfig(iconPackPackage, iconOverrides, showAppIcons, themedIcons, iconShape)
+                IconConfig(iconPackPackage, iconOverrides, showAppIcons, themedIcons, iconShape, shortcutAppBadge)
             }
 
             VictoriaTheme(font = font, fontFile = fontFile) {

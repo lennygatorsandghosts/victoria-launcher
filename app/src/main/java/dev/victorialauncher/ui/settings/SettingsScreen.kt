@@ -132,8 +132,10 @@ fun SettingsScreen(
     nowPlayingEnabled: Boolean,
     nowPlayingListenerEnabled: Boolean,
     showAppIcons: Boolean,
+    shortcutBadges: Boolean,
     onSetIconPack: (String?) -> Unit,
     onSetShowAppIcons: (Boolean) -> Unit,
+    onSetShortcutBadges: (Boolean) -> Unit,
     onSetIconSize: (Int) -> Unit,
     onSetLabelSize: (Int) -> Unit,
     onSetItemSpacing: (Int) -> Unit,
@@ -313,6 +315,10 @@ fun SettingsScreen(
                     TextColorRow(textColorMode, textColorCustom, onSetTextColorMode, onSetTextColorCustom)
                     RowDivider()
                     IconShapeRow(iconShape, onSetIconShape)
+                    if (showAppIcons) {
+                        RowDivider()
+                        SwitchRow(stringResource(R.string.settings_shortcut_badge), shortcutBadges, onSetShortcutBadges)
+                    }
                     RowDivider()
                     AlignmentRow(
                         stringResource(R.string.settings_alignment_favorites),

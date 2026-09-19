@@ -311,6 +311,7 @@ class ShortcutBadgeTest {
             px = 192,
             style = style,
             priorityKeys = rows.map { it.key }.toSet(),
+            badges = badgeEnabled,
         )
         return SystemClock.elapsedRealtimeNanos() - start
     }
