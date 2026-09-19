@@ -52,7 +52,9 @@ class ShortcutBadgeTest {
         device = LauncherTestUtils.uiDevice()
         targetContext = InstrumentationRegistry.getInstrumentation().targetContext
         prefs = Prefs(targetContext.applicationContext)
-        originalPrefs = prefs.exportJson()
+        // The fork's export takes a stripping flag and returns a result object; a test
+        // restoring its own device must keep every profile's keys.
+        originalPrefs = prefs.exportJson(stripOtherProfiles = false).json
 
         assumeTestPackInstalled()
         LauncherTestUtils.setAsDefaultHome()
@@ -231,7 +233,7 @@ class ShortcutBadgeTest {
     }
 
     private suspend fun setShortcutBadgePref(enabled: Boolean) {
-        val root = JSONObject(prefs.exportJson())
+        val root = JSONObject(prefs.exportJson(stripOtherProfiles = false).json)
         val values = root.getJSONObject("values")
         values.put(
             SHORTCUT_APP_BADGE_PREF,
