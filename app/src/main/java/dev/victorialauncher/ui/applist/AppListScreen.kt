@@ -1146,6 +1146,11 @@ private fun AppRow(
             }
         }
 
+        // The swipe above only sets this; upstream 0.67.0 moved the shortcuts out of the
+        // long-press menu below and left the app list without anything that draws them, so a
+        // swipe on a row here did nothing while the same swipe on a favorite worked.
+        AppShortcutMenu(app, shortcutMenu, shortcutOffset) { shortcutMenu = false }
+
         DropdownMenu(expanded = menuExpanded, onDismissRequest = onDismissMenu, offset = menuOffset) {
             DropdownMenuItem(
                 text = { Text(stringResource(if (isFavorite) R.string.applist_remove_favorite else R.string.applist_add_favorite)) },
