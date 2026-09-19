@@ -1129,19 +1129,27 @@ class Prefs(private val context: Context) {
      * Stamps whether this install is new, once. Nothing writes to the store before the user
      * changes something, so an empty store is the one reliable signal of a first run — which
      * is why this has to run before any other setter can muddy it.
+     *
+     * Returns true only on the call that found the store empty, i.e. once per install, in the
+     * process that is running that first launch. The marker itself cannot say this: it stays
+     * at the value written here for good, so an install that began on an earlier build reads
+     * exactly like one that began a moment ago.
      */
-    suspend fun ensureInstallMarker() {
+    suspend fun ensureInstallMarker(): Boolean {
+        var firstRun = false
         context.dataStore.edit { pref ->
             if (pref[Keys.LAYOUT_DEFAULTS_VERSION] == null) {
                 if (pref.asMap().isEmpty()) {
                     pref.writeNiagaraPresetValues()
                     pref[Keys.NIAGARA_OFFER_SEEN] = true
                     pref[Keys.LAYOUT_DEFAULTS_VERSION] = 2
+                    firstRun = true
                 } else {
                     pref[Keys.LAYOUT_DEFAULTS_VERSION] = 0
                 }
             }
         }
+        return firstRun
     }
 
     private fun jsonToMap(json: String?): Map<String, String> {

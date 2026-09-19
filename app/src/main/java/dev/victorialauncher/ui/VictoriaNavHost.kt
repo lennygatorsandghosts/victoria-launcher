@@ -262,7 +262,9 @@ fun VictoriaNavHost(
 
     // Before anything the user does can write to the store, so "the store is empty" still
     // means "this is a first run" when it is read.
-    LaunchedEffect(Unit) { app.prefs.ensureInstallMarker() }
+    // True only in the process that found the store empty; what the first-run clock below waits on.
+    var firstRun by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { firstRun = app.prefs.ensureInstallMarker() }
 
     DisposableEffect(Unit) {
         val launcherApps = context.getSystemService(LauncherApps::class.java)
@@ -413,11 +415,17 @@ fun VictoriaNavHost(
     val layoutDefaultsVersion by app.prefs.layoutDefaultsVersion.collectAsState(initial = null)
 
     // A brand new launcher gets its own clock, so the home screen is not simply empty on first
-    // sight. Only ever on an install that has never been set up — the marker is written once,
-    // before anything the user does — and only while there is no widget at all, so nobody's
-    // arrangement is added to and a widget they removed does not come back.
-    LaunchedEffect(layoutDefaultsVersion, widgetIds) {
-        if (layoutDefaultsVersion != 1 || widgetIds.isNotEmpty()) return@LaunchedEffect
+    // sight. Only ever on an install that has never been set up, and only while there is no
+    // widget at all, so nobody's arrangement is added to and a widget they removed does not
+    // come back.
+    //
+    // Fork: upstream keys this on marker 1, which here means an install of an earlier Vicky+
+    // (fresh installs are stamped 2) — an existing phone with no widgets would have been handed
+    // a clock by the update, and handed it again every time it was removed. Keyed instead on
+    // the first run itself, and spent on the first try.
+    LaunchedEffect(firstRun, widgetIds) {
+        if (!firstRun || widgetIds.isNotEmpty()) return@LaunchedEffect
+        firstRun = false
         val manager = AppWidgetManager.getInstance(context)
         val id = app.widgetHost.allocateAppWidgetId()
         val bound = runCatching {
