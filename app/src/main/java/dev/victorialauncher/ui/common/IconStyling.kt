@@ -56,8 +56,11 @@ fun renderIcon(
 
     if (adaptive == null) {
         val square = drawable.toSquareBitmap(px)
-        if (!maskNonAdaptive || shape == IconShape.SYSTEM) return square
-        return square.maskedTo(shapePath(shape, px))
+        if (!maskNonAdaptive) return square
+        // SYSTEM means "whatever this device masks adaptive icons to", which cannot be asked
+        // for as a path; a circle is what the themed path below already stands in with, and
+        // what the phones this runs on use.
+        return square.maskedTo(shapePath(if (shape == IconShape.SYSTEM) IconShape.CIRCLE else shape, px))
     }
 
     val layers = if (mono != null) {
