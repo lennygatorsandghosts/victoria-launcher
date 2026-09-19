@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -40,17 +41,27 @@ import dev.victorialauncher.data.IconShape
 import dev.victorialauncher.data.AppFont
 import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.AzStripVisibility
+import dev.victorialauncher.data.ButtonAction
+import dev.victorialauncher.data.ButtonSlot
 import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.HomePaddings
 import dev.victorialauncher.data.QuickLaunchSlot
+import dev.victorialauncher.data.SearchUrl
+import dev.victorialauncher.data.ShortcutCandidate
 import dev.victorialauncher.data.TextColorMode
+import dev.victorialauncher.data.effectiveActions
 import androidx.compose.ui.res.stringResource
 import dev.victorialauncher.R
 import dev.victorialauncher.data.folderIdFromToken
 import dev.victorialauncher.media.isListenerEnabled
 import dev.victorialauncher.service.SystemUi
+import dev.victorialauncher.ui.applist.AppListModel
+import dev.victorialauncher.ui.applist.buildAppListModel
+import dev.victorialauncher.ui.button.AppShortcutsSection
+import dev.victorialauncher.ui.button.ButtonActionPickerScreen
+import dev.victorialauncher.ui.button.actionLabel
 import dev.victorialauncher.ui.common.IconPickerScreen
 import dev.victorialauncher.ui.common.IconStyle
 import dev.victorialauncher.ui.common.LocalIconConfig
@@ -201,6 +212,10 @@ fun VictoriaNavHost(
     val edgeZoneWidthDp by app.prefs.edgeZoneWidthDp.collectAsState(initial = 56)
     val quickLaunchLeftKey by app.prefs.quickLaunchLeft.collectAsState(initial = null)
     val quickLaunchRightKey by app.prefs.quickLaunchRight.collectAsState(initial = null)
+    val fbuttonStoredActions by app.prefs.fbuttonStoredActions.collectAsState(initial = emptyMap())
+    val fbuttonEnabled by app.prefs.fbuttonEnabled.collectAsState(initial = false)
+    val searchUrlTemplate by app.prefs.searchUrlTemplate.collectAsState(initial = "")
+    val searchLabel by app.prefs.searchLabel.collectAsState(initial = "")
     val showAppIcons by app.prefs.showAppIcons.collectAsState(initial = true)
     val fontFile by app.prefs.fontFile.collectAsState(initial = null)
     val textColorCustom by app.prefs.textColorCustom.collectAsState(initial = 0xFFFFFFFF.toInt())
@@ -244,6 +259,23 @@ fun VictoriaNavHost(
 
     val appsByKey = remember(allApps) { allApps.associateBy { it.key } }
     val foldersById = remember(folders) { folders.associateBy { it.id } }
+
+    val fbuttonActions = remember(fbuttonStoredActions, searchUrlTemplate, quickLaunchLeftKey, quickLaunchRightKey) {
+        effectiveActions(
+            stored = fbuttonStoredActions,
+            hasSearchTemplate = SearchUrl.validate(searchUrlTemplate) is SearchUrl.Validation.Ok,
+            quickLeftKey = quickLaunchLeftKey,
+            quickRightKey = quickLaunchRightKey,
+        )
+    }
+    // Not wrapped in remember: actionLabel() reads stringResource(), which remember's
+    // calculation lambda is not allowed to call. Four slots is cheap enough to redo every
+    // recomposition.
+    val fbuttonActionLabels = ButtonSlot.entries.associateWith { slot ->
+        actionLabel(fbuttonActions[slot] ?: ButtonAction.None) { key ->
+            appsByKey[key]?.let { nameOverrides[it.key] ?: it.label }
+        }
+    }
 
     // A favorites row is an app or a folder; both come out of the same ordered token list.
     val favoriteEntries = remember(favoriteKeys, appsByKey, foldersById) {
@@ -344,6 +376,9 @@ fun VictoriaNavHost(
         sortByUsage = sortByUsage,
         quickLaunchLeft = quickLaunchLeftKey?.let { appsByKey[it] },
         quickLaunchRight = quickLaunchRightKey?.let { appsByKey[it] },
+        fbuttonEnabled = fbuttonEnabled,
+        fbuttonActions = fbuttonActions,
+        searchUrlTemplate = searchUrlTemplate,
         // Both flows start null/true so nothing is centered or offered before the stored
         // answer arrives; a legacy install is stamped 0 and never enters either path.
         centerFavorites = layoutDefaultsVersion == 1 && !hasCustomLayout,
@@ -599,6 +634,14 @@ fun VictoriaNavHost(
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     )
                 },
+                fbuttonEnabled = fbuttonEnabled,
+                fbuttonActionLabels = fbuttonActionLabels,
+                onSetFButtonEnabled = { scope.launch { app.prefs.setFButtonEnabled(it) } },
+                onOpenButtonActionPicker = { slot -> navController.navigate("buttonaction/" + slot.name) },
+                searchUrlTemplate = searchUrlTemplate,
+                searchLabel = searchLabel,
+                onSetSearchUrlTemplate = { scope.launch { app.prefs.setSearchUrlTemplate(it) } },
+                onSetSearchLabel = { scope.launch { app.prefs.setSearchLabel(it) } },
                 onBack = { navController.popBackStack() },
             )
         }
@@ -666,6 +709,79 @@ fun VictoriaNavHost(
                     navController.popBackStack()
                 },
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable("buttonaction/{slot}") { entry ->
+            val slot = runCatching {
+                ButtonSlot.valueOf(entry.arguments?.getString("slot").orEmpty())
+            }.getOrDefault(ButtonSlot.TAP)
+            val pickerModel by produceState(
+                initialValue = AppListModel(emptyList(), emptyList()),
+                allApps,
+                nameOverrides,
+                if (sortByUsage) launchCounts else emptyMap(),
+            ) {
+                val counts = if (sortByUsage) launchCounts else emptyMap()
+                value = withContext(Dispatchers.Default) {
+                    buildAppListModel(
+                        allApps,
+                        emptySet(),
+                        { nameOverrides[it.key] ?: it.label },
+                        counts,
+                        englishName = { app.appRepository.englishLabel(it) },
+                    )
+                }
+            }
+            val shortcutCandidates by produceState(
+                initialValue = emptyList<ShortcutCandidate>(),
+                slot,
+                allApps,
+            ) {
+                value = withContext(Dispatchers.IO) { app.appRepository.listShortcutsForAction() }
+            }
+            val currentAction = fbuttonActions[slot] ?: ButtonAction.None
+            ButtonActionPickerScreen(
+                title = when (slot) {
+                    ButtonSlot.TAP -> stringResource(R.string.button_edit_tap)
+                    ButtonSlot.SWIPE_UP -> stringResource(R.string.button_edit_swipe_up)
+                    ButtonSlot.SWIPE_LEFT -> stringResource(R.string.button_edit_swipe_left)
+                    ButtonSlot.SWIPE_RIGHT -> stringResource(R.string.button_edit_swipe_right)
+                },
+                current = currentAction,
+                model = pickerModel,
+                currentLabel = { key -> appsByKey[key]?.let { nameOverrides[it.key] ?: it.label } },
+                nameOverrides = nameOverrides,
+                iconSizeDp = iconSizeDp,
+                onPick = { action ->
+                    scope.launch { app.prefs.setFButtonAction(slot, action.encode()) }
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() },
+                appShortcutsSection = {
+                    AppShortcutsSection(
+                        candidates = shortcutCandidates,
+                        current = currentAction,
+                        onPick = { candidate ->
+                            scope.launch {
+                                val knownPinned = shortcutCandidates
+                                    .filter { it.isPinned && it.packageName == candidate.packageName && it.user == candidate.user }
+                                    .map { it.shortcutId }
+                                val key = app.appRepository.pinForAction(candidate, knownPinned)
+                                if (key == null) {
+                                    Toast.makeText(
+                                        context,
+                                        R.string.button_picker_shortcut_pin_failed,
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else {
+                                    app.prefs.setFButtonAction(slot, ButtonAction.LaunchEntry(key).encode())
+                                    navController.popBackStack()
+                                }
+                            }
+                        },
+                    )
+                },
             )
         }
 

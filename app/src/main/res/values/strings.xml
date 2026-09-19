@@ -116,6 +116,7 @@
     <string name="button_picker_current">Current</string>
     <string name="button_picker_actions">Actions</string>
     <string name="button_picker_app_shortcuts">App shortcuts</string>
+    <string name="button_picker_shortcut_pin_failed">Could not pin that shortcut</string>
     <string name="button_action_none">None</string>
     <string name="button_action_unavailable_app">Unavailable app</string>
     <string name="button_action_web_search">Web search</string>
@@ -123,6 +124,9 @@
     <string name="button_action_notifications">Notifications</string>
     <string name="button_action_lock_screen">Lock screen</string>
     <string name="search_dialog_hint">Search the web</string>
+    <string name="toast_search_failed">Couldn\'t find a browser to open that search</string>
+    <string name="toast_search_unavailable">The search address isn\'t valid — check it in Settings</string>
+    <string name="toast_open_url_failed">Couldn\'t open that address</string>
     <string name="search_entry_default_label">Search</string>
     <string name="settings_section_search">Search button</string>
     <string name="settings_search_button_detail">Opens the address below in your browser, with what you type in place of %1$s</string>
