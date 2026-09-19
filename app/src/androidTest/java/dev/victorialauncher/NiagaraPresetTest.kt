@@ -144,6 +144,12 @@ class NiagaraPresetTest {
         LauncherTestUtils.filterAppList(settingsLabel.take(9))
         assertTrue("expected the Settings row", LauncherTestUtils.waitForText(settingsLabel))
         device.findObject(By.text(settingsLabel)).click()
+        // Since upstream 0.63.0 Settings opens on a list of sections; the Apply row is in
+        // Appearance.
+        val appearanceLabel = InstrumentationRegistry.getInstrumentation().targetContext
+            .getString(R.string.settings_section_appearance)
+        assertTrue("expected the Appearance section in Settings", scrollDownUntilVisible(appearanceLabel))
+        device.findObject(By.text(appearanceLabel)).click()
         assertTrue(
             "expected the Settings screen to open, with the Apply row reachable",
             scrollDownUntilVisible(APPLY_ROW_LABEL),

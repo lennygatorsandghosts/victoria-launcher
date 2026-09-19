@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
@@ -223,7 +224,10 @@ fun SettingsScreen(
     // One screen, shown a section at a time. Separate destinations would mean threading every
     // one of these settings through a route of its own, for a list that is only ever reached
     // from here — so the sections stay where they are and the screen shows one of them.
-    var openSection by remember { mutableStateOf<SettingsSection?>(null) }
+    //
+    // Saveable, so a row that opens a screen of its own (the Vicky+ button's action picker,
+    // favorites, hidden apps) comes back to the section it was opened from, not the list of them.
+    var openSection by rememberSaveable { mutableStateOf<SettingsSection?>(null) }
     BackHandler(enabled = openSection != null) { openSection = null }
 
     Box(Modifier.fillMaxSize()) {

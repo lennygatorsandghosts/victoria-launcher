@@ -73,6 +73,12 @@ class SearchSettingsSaveOnLeaveTest {
         LauncherTestUtils.filterAppList(settingsLabel.take(9))
         assertTrue("expected the Settings row", LauncherTestUtils.waitForText(settingsLabel))
         device.findObject(By.text(settingsLabel)).click()
+        // Since upstream 0.63.0 Settings opens on a list of sections; open the fork's Search
+        // button section. Back from it then leaves the section, which disposes the fields just
+        // as leaving Settings did, and is what this test's save-on-leave rests on.
+        val sectionLabel = instrumentation.targetContext.getString(R.string.settings_section_search)
+        assertTrue("expected the Search button section in Settings", scrollDownUntilVisible(sectionLabel))
+        device.findObject(By.text(sectionLabel)).click()
 
         assertTrue(
             "expected the Settings screen, with the Search button section reachable",
