@@ -2,6 +2,7 @@
 package dev.victorialauncher.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -48,5 +49,28 @@ class PinnedShortcutsTest {
         // id twice in one call is at best pointless.
         val pinned = listOf(ref("com.browser", "a"), ref("com.browser", "a"), ref("com.browser", "b"))
         assertEquals(listOf("a"), PinnedShortcuts.remainingIds(pinned, ref("com.browser", "b")))
+    }
+
+    @Test
+    fun `adding to an empty pinned set returns the new id`() {
+        assertEquals(listOf("a"), PinnedShortcuts.withAdded(emptyList(), "a"))
+    }
+
+    @Test
+    fun `adding an already pinned id changes nothing`() {
+        assertEquals(listOf("a", "b"), PinnedShortcuts.withAdded(listOf("a", "b"), "b"))
+    }
+
+    @Test
+    fun `adding a new id appends it after the current pinned ids`() {
+        assertEquals(listOf("a", "b", "c"), PinnedShortcuts.withAdded(listOf("a", "b"), "c"))
+    }
+
+    @Test
+    fun aFreshReadIsTrustedOnlyWhenEveryKnownPinIsInIt() {
+        assertTrue(PinnedShortcuts.readLooksComplete(listOf("a", "b"), listOf("a")))
+        assertTrue(PinnedShortcuts.readLooksComplete(listOf("a", "b"), emptyList()))
+        assertFalse(PinnedShortcuts.readLooksComplete(emptyList(), listOf("a")))
+        assertFalse(PinnedShortcuts.readLooksComplete(listOf("b"), listOf("a", "b")))
     }
 }

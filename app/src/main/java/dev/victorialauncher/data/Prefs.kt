@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -108,6 +109,13 @@ class Prefs(private val context: Context) {
         val EDGE_ZONE_WIDTH_DP = intPreferencesKey("edge_zone_width_dp")
         val QUICK_LAUNCH_LEFT = stringPreferencesKey("quick_launch_left_key")
         val QUICK_LAUNCH_RIGHT = stringPreferencesKey("quick_launch_right_key")
+        val FBUTTON_TAP = stringPreferencesKey("fbutton_tap")
+        val FBUTTON_SWIPE_UP = stringPreferencesKey("fbutton_swipe_up")
+        val FBUTTON_SWIPE_LEFT = stringPreferencesKey("fbutton_swipe_left")
+        val FBUTTON_SWIPE_RIGHT = stringPreferencesKey("fbutton_swipe_right")
+        val FBUTTON_ENABLED = booleanPreferencesKey("fbutton_enabled")
+        val SEARCH_URL_TEMPLATE = stringPreferencesKey("search_url_template")
+        val SEARCH_LABEL = stringPreferencesKey("search_label")
         val LAYOUT_DEFAULTS_VERSION = intPreferencesKey("layout_defaults_version")
         val WELCOME_SEEN = booleanPreferencesKey("welcome_seen")
         val SHOW_APP_ICONS = booleanPreferencesKey("show_app_icons")
@@ -279,6 +287,13 @@ class Prefs(private val context: Context) {
     /** Absolute path of the typeface the user supplied, once it has been copied in. */
     val fontFile: Flow<String?> = data.map { it[Keys.FONT_FILE] }.distinctUntilChanged()
 
+    /** Blank until the user sets one, which keeps web search unavailable by default. */
+    val searchUrlTemplate: Flow<String> =
+        data.map { it[Keys.SEARCH_URL_TEMPLATE] ?: "" }.distinctUntilChanged()
+
+    /** Blank means the localized default name, so nothing is stored until it is overridden. */
+    val searchLabel: Flow<String> = data.map { it[Keys.SEARCH_LABEL] ?: "" }.distinctUntilChanged()
+
     /**
      * Whether swiping a row sideways offers the shortcuts its app publishes.
      *
@@ -436,6 +451,21 @@ class Prefs(private val context: Context) {
 
     val quickLaunchRight: Flow<String?> = data.map { it[Keys.QUICK_LAUNCH_RIGHT] }.distinctUntilChanged()
 
+    val fbuttonTap: Flow<String?> = data.map { it[Keys.FBUTTON_TAP] }.distinctUntilChanged()
+    val fbuttonSwipeUp: Flow<String?> = data.map { it[Keys.FBUTTON_SWIPE_UP] }.distinctUntilChanged()
+    val fbuttonSwipeLeft: Flow<String?> = data.map { it[Keys.FBUTTON_SWIPE_LEFT] }.distinctUntilChanged()
+    val fbuttonSwipeRight: Flow<String?> = data.map { it[Keys.FBUTTON_SWIPE_RIGHT] }.distinctUntilChanged()
+    val fbuttonEnabled: Flow<Boolean> = data.map { it[Keys.FBUTTON_ENABLED] ?: false }.distinctUntilChanged()
+    val fbuttonStoredActions: Flow<Map<ButtonSlot, String?>> =
+        combine(fbuttonTap, fbuttonSwipeUp, fbuttonSwipeLeft, fbuttonSwipeRight) { tap, up, left, right ->
+            mapOf(
+                ButtonSlot.TAP to tap,
+                ButtonSlot.SWIPE_UP to up,
+                ButtonSlot.SWIPE_LEFT to left,
+                ButtonSlot.SWIPE_RIGHT to right,
+            )
+        }.distinctUntilChanged()
+
     /** Drawing icons at all; off leaves text-only rows everywhere. */
     val showAppIcons: Flow<Boolean> = data.map { it[Keys.SHOW_APP_ICONS] ?: true }.distinctUntilChanged()
 
@@ -551,6 +581,10 @@ class Prefs(private val context: Context) {
             // nothing once the row is gone for good.
             if (pref[Keys.QUICK_LAUNCH_LEFT] == componentKey) pref.remove(Keys.QUICK_LAUNCH_LEFT)
             if (pref[Keys.QUICK_LAUNCH_RIGHT] == componentKey) pref.remove(Keys.QUICK_LAUNCH_RIGHT)
+            if (ButtonAction.parse(pref[Keys.FBUTTON_TAP]) == ButtonAction.LaunchEntry(componentKey)) pref.remove(Keys.FBUTTON_TAP)
+            if (ButtonAction.parse(pref[Keys.FBUTTON_SWIPE_UP]) == ButtonAction.LaunchEntry(componentKey)) pref.remove(Keys.FBUTTON_SWIPE_UP)
+            if (ButtonAction.parse(pref[Keys.FBUTTON_SWIPE_LEFT]) == ButtonAction.LaunchEntry(componentKey)) pref.remove(Keys.FBUTTON_SWIPE_LEFT)
+            if (ButtonAction.parse(pref[Keys.FBUTTON_SWIPE_RIGHT]) == ButtonAction.LaunchEntry(componentKey)) pref.remove(Keys.FBUTTON_SWIPE_RIGHT)
         }
     }
 
@@ -670,6 +704,15 @@ class Prefs(private val context: Context) {
         context.dataStore.edit { pref ->
             if (path == null) pref.remove(Keys.FONT_FILE) else pref[Keys.FONT_FILE] = path
         }
+    }
+
+    /** An empty string clears it, the same as every other blank-means-unset string here. */
+    suspend fun setSearchUrlTemplate(template: String) {
+        context.dataStore.edit { it[Keys.SEARCH_URL_TEMPLATE] = template }
+    }
+
+    suspend fun setSearchLabel(label: String) {
+        context.dataStore.edit { it[Keys.SEARCH_LABEL] = label }
     }
 
     suspend fun setSwipeForShortcuts(v: Boolean) {
@@ -837,6 +880,23 @@ class Prefs(private val context: Context) {
         context.dataStore.edit { pref ->
             if (componentKey.isNullOrBlank()) pref.remove(key) else pref[key] = componentKey
         }
+    }
+
+    suspend fun setFButtonAction(slot: ButtonSlot, action: String?) {
+        val key = when (slot) {
+            ButtonSlot.TAP -> Keys.FBUTTON_TAP
+            ButtonSlot.SWIPE_UP -> Keys.FBUTTON_SWIPE_UP
+            ButtonSlot.SWIPE_LEFT -> Keys.FBUTTON_SWIPE_LEFT
+            ButtonSlot.SWIPE_RIGHT -> Keys.FBUTTON_SWIPE_RIGHT
+        }
+        context.dataStore.edit { pref ->
+            val encoded = action?.takeIf { ButtonAction.parse(it) != null }
+            if (encoded.isNullOrBlank()) pref.remove(key) else pref[key] = encoded
+        }
+    }
+
+    suspend fun setFButtonEnabled(v: Boolean) {
+        context.dataStore.edit { it[Keys.FBUTTON_ENABLED] = v }
     }
 
     suspend fun setShowAppIcons(v: Boolean) {
