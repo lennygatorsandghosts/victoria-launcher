@@ -9,13 +9,16 @@ import android.os.SystemClock
 import android.os.UserHandle
 import android.os.UserManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.FlakyTest
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.Folder
 import dev.victorialauncher.data.Prefs
 import dev.victorialauncher.data.USER_TYPE_PROFILE_PRIVATE
+import dev.victorialauncher.data.folderToken
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -52,6 +55,9 @@ class PrivateSpaceLauncherTest {
     private val favoritesAdded = mutableListOf<String>()
     private val foldersAdded = mutableListOf<String>()
 
+    /** What swipe-for-shortcuts was before a test turned it on; null when none did. */
+    private var swipeForShortcutsWas: Boolean? = null
+
     @Before
     fun setUp() {
         assumeTrue("private space arrived in Android 15", Build.VERSION.SDK_INT >= 35)
@@ -82,7 +88,11 @@ class PrivateSpaceLauncherTest {
         runBlocking {
             favoritesAdded.forEach { key -> Prefs(context).removeFavorite(key) }
             foldersAdded.forEach { id -> Prefs(context).deleteFolder(id) }
+            // Back to what it was, so the two tests that switch swipe-for-shortcuts on cannot
+            // change what any other test — or the device this ran on — is looking at.
+            swipeForShortcutsWas?.let { Prefs(context).setSwipeForShortcuts(it) }
         }
+        swipeForShortcutsWas = null
         favoritesAdded.clear()
         foldersAdded.clear()
         setLocked(false)
@@ -211,6 +221,148 @@ class PrivateSpaceLauncherTest {
         assertTrue("pressing the row did not lock the space", waitForQuietMode(true))
     }
 
+    @Test
+    fun aLockedSpacesOwnShortcutsAreOfferedNowhere() {
+        enableSwipeForShortcuts()
+        val privateShortcutLabels = privateExclusiveShortcutLabels()
+        assumeTrue(
+            "$PRIVATE_APP_PACKAGE has no private-only shortcut labels to test",
+            privateShortcutLabels.isNotEmpty(),
+        )
+
+        val privateKey = privateAppKey()
+        val mainKey = mainAppKey()
+        favorite(privateKey)
+        favorite(mainKey)
+        favorite(folderToken(folder(FOLDER_NAME, listOf(mainKey, privateKey))))
+
+        setLocked(false)
+        LauncherTestUtils.goHome()
+        swipeRight(PRIVATE_APP_LABEL)
+        assertAnyShortcutVisible(
+            privateShortcutLabels,
+            "the unlocked private favorite did not show any private-only shortcuts",
+        )
+        device.pressBack()
+
+        swipeRight(PRIVATE_APP_LABEL)
+        assertAnyShortcutVisible(
+            privateShortcutLabels,
+            "the private shortcut menu did not open before the lock",
+        )
+        setLocked(true)
+        assertTrue(
+            "locking the space did not remove the open private shortcut menu and row",
+            waitUntilNoTexts(privateShortcutLabels + PRIVATE_APP_LABEL, CONCEAL_MS),
+        )
+
+        val directShortcuts = (context.applicationContext as VictoriaApp).appRepository.appShortcuts(privateAppInfo())
+        assertTrue(
+            "a direct shortcut query returned private shortcuts while the space was locked",
+            directShortcuts.isEmpty(),
+        )
+
+        val mainShortcutLabels = shortcutLabels(
+            MAIN_APP_PACKAGE,
+            Process.myUserHandle(),
+            MENU_SHORTCUT_FLAGS,
+        )
+        assumeTrue(
+            "$MAIN_APP_PACKAGE has no shortcut labels to use as the positive control",
+            mainShortcutLabels.isNotEmpty(),
+        )
+
+        LauncherTestUtils.goHome()
+        swipeRight(MAIN_APP_LABEL)
+        assertAnyShortcutVisible(
+            mainShortcutLabels,
+            "the locked home favorite did not show the main app's shortcuts",
+        )
+        assertNoPrivateShortcutText(privateShortcutLabels, "home favorite")
+        device.pressBack()
+
+        searchFor(SHARED_SEARCH)
+        swipeRight(MAIN_APP_LABEL)
+        assertAnyShortcutVisible(
+            mainShortcutLabels,
+            "the locked A-Z row did not show the main app's shortcuts",
+        )
+        assertNoPrivateShortcutText(privateShortcutLabels, "A-Z row")
+        device.pressBack()
+
+        LauncherTestUtils.goHome()
+        assertTrue(
+            "the mixed folder was not shown on the home screen",
+            LauncherTestUtils.waitForText(FOLDER_NAME),
+        )
+        device.findObject(By.text(FOLDER_NAME)).click()
+        assertTrue(
+            "the mixed folder did not show its main-profile member while locked",
+            LauncherTestUtils.waitForText(MAIN_APP_LABEL),
+        )
+        swipeRightLowest(MAIN_APP_LABEL)
+        assertAnyShortcutVisible(
+            mainShortcutLabels,
+            "the locked folder member did not show the main app's shortcuts",
+        )
+        assertNoPrivateShortcutText(privateShortcutLabels, "folder member")
+        device.pressBack()
+
+        openTapActionPickerFromSettings()
+        assertTrue(
+            "the app-shortcuts section was not listed in the Vicky+ button picker",
+            scrollUntilText(APP_SHORTCUTS_LABEL),
+        )
+        assertTrue(
+            "the Vicky+ button picker did not list the main app's shortcut group",
+            scrollUntilText(MAIN_APP_LABEL),
+        )
+        assertNoPrivateShortcutText(privateShortcutLabels, "Vicky+ button picker")
+    }
+
+    @FlakyTest
+    @Test
+    fun lockingThenSwipingALingeringPrivateRowShowsNoShortcuts() {
+        enableSwipeForShortcuts()
+        val privateShortcutLabels = privateExclusiveShortcutLabels()
+        assumeTrue(
+            "$PRIVATE_APP_PACKAGE has no private-only shortcut labels to test",
+            privateShortcutLabels.isNotEmpty(),
+        )
+
+        setLocked(false)
+        searchFor(PRIVATE_ROW_SEARCH)
+        assertTrue(
+            "the row that locks the private space was not shown while unlocked",
+            LauncherTestUtils.waitForText(PRIVATE_ROW_UNLOCKED_LABEL),
+        )
+        device.findObject(By.text(PRIVATE_ROW_UNLOCKED_LABEL)).click()
+
+        // Timing-dependent until the M1 render filter lands: if the old row lingers, it must
+        // still not be able to open the private app's shortcuts.
+        searchFor(PRIVATE_APP_SEARCH)
+        if (device.wait(Until.hasObject(By.text(PRIVATE_APP_LABEL)), 250L)) {
+            swipeRight(PRIVATE_APP_LABEL)
+            assertNoPrivateShortcutText(privateShortcutLabels, "lingering private A-Z row")
+        }
+        assertTrue("pressing the row did not lock the space", waitForQuietMode(true))
+
+        // Not timing-dependent, and the half of this the M1 render filter is for: however long
+        // the rebuild takes, a locked space's app must not still be a row in the A-Z list.
+        // Without the filter the row only leaves when the async rebuild replaces the model.
+        assertTrue(
+            "the A-Z list still drew $PRIVATE_APP_LABEL after the space locked",
+            waitUntilNoTexts(listOf(PRIVATE_APP_LABEL), CONCEAL_MS),
+        )
+        // And a swipe on whatever the list does show must not reach into the space either.
+        assertTrue(
+            "a direct shortcut query returned private shortcuts after the lock was granted",
+            (context.applicationContext as VictoriaApp).appRepository
+                .appShortcuts(privateAppInfo())
+                .isEmpty(),
+        )
+    }
+
     /**
      * The space locks itself whenever the screen goes off, so it is routinely locked while the
      * launcher is not the thing on screen, and what says so can be missed.
@@ -286,16 +438,139 @@ class PrivateSpaceLauncherTest {
     }
 
     /** Stores a folder for the duration, and deletes it again in tearDown. */
-    private fun folder(name: String, apps: List<String>) {
+    private fun folder(name: String, apps: List<String>): String {
         val id = "test-" + SystemClock.uptimeMillis().toString(36)
         foldersAdded += id
         runBlocking { Prefs(context).upsertFolder(Folder(id = id, name = name, apps = apps)) }
+        return id
+    }
+
+    /** Turns the swipe on for the duration, remembering what it was so tearDown can undo it. */
+    private fun enableSwipeForShortcuts() {
+        runBlocking {
+            val prefs = Prefs(context)
+            if (swipeForShortcutsWas == null) swipeForShortcutsWas = prefs.swipeForShortcuts.first()
+            prefs.setSwipeForShortcuts(true)
+        }
     }
 
     /** Stores a favorite for the duration, and takes it away again in tearDown. */
     private fun favorite(key: String) {
         favoritesAdded += key
         runBlocking { Prefs(context).addFavorite(key) }
+    }
+
+    private fun privateExclusiveShortcutLabels(): Set<String> {
+        val privateLabels = shortcutLabels(PRIVATE_APP_PACKAGE, privateUser, MENU_SHORTCUT_FLAGS)
+        val mainLabels = shortcutLabels(null, Process.myUserHandle(), MENU_AND_PINNED_SHORTCUT_FLAGS)
+        return privateLabels - mainLabels
+    }
+
+    private fun shortcutLabels(packageName: String?, user: UserHandle, flags: Int): Set<String> {
+        val query = LauncherApps.ShortcutQuery().setQueryFlags(flags)
+        if (packageName != null) query.setPackage(packageName)
+        return runCatching { launcherApps.getShortcuts(query, user) }
+            .getOrNull()
+            .orEmpty()
+            .mapNotNull { info -> info.shortLabel?.toString()?.takeIf { it.isNotBlank() } }
+            .toSet()
+    }
+
+    private fun privateAppInfo(): AppInfo {
+        val activity = checkNotNull(activityIn(privateUser))
+        return AppInfo(
+            componentName = activity.componentName,
+            label = PRIVATE_APP_LABEL,
+            user = privateUser,
+            userSerial = userManager.getSerialNumberForUser(privateUser),
+        )
+    }
+
+    private fun assertAnyShortcutVisible(labels: Collection<String>, message: String) {
+        assertTrue(
+            "$message; looked for ${labels.joinToString()}",
+            waitForAnyText(labels) != null,
+        )
+    }
+
+    private fun assertNoPrivateShortcutText(labels: Collection<String>, surface: String) {
+        val leaked = waitForAnyText(labels + PRIVATE_APP_LABEL, ABSENCE_MS)
+        assertFalse(
+            "$surface offered private shortcut text ${leaked.orEmpty()} while the space was locked",
+            leaked != null,
+        )
+    }
+
+    private fun waitForAnyText(labels: Collection<String>, timeoutMs: Long = 10_000L): String? {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        do {
+            labels.firstOrNull { label -> device.hasObject(By.text(label)) }?.let { return it }
+            SystemClock.sleep(100)
+        } while (SystemClock.uptimeMillis() < deadline)
+        return null
+    }
+
+    private fun waitUntilNoTexts(labels: Collection<String>, timeoutMs: Long): Boolean {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        do {
+            if (labels.none { label -> device.hasObject(By.text(label)) }) return true
+            SystemClock.sleep(100)
+        } while (SystemClock.uptimeMillis() < deadline)
+        return labels.none { label -> device.hasObject(By.text(label)) }
+    }
+
+    private fun swipeRight(text: String) {
+        val obj = device.wait(Until.findObject(By.text(text)), 5_000L)
+            ?: error("could not find $text to swipe")
+        val bounds = obj.visibleBounds
+        device.swipe(bounds.left + 10, bounds.centerY(), bounds.left + 400, bounds.centerY(), 10)
+    }
+
+    private fun swipeRightLowest(text: String) {
+        val obj = device.findObjects(By.text(text)).maxByOrNull { it.visibleBounds.top }
+            ?: device.wait(Until.findObject(By.text(text)), 5_000L)
+            ?: error("could not find $text to swipe")
+        val bounds = obj.visibleBounds
+        device.swipe(bounds.left + 10, bounds.centerY(), bounds.left + 400, bounds.centerY(), 10)
+    }
+
+    private fun openTapActionPickerFromSettings() {
+        searchFor(SETTINGS_ENTRY_SEARCH)
+        assertTrue(
+            "the launcher settings row was not shown in the app list",
+            LauncherTestUtils.waitForText(SETTINGS_ENTRY_LABEL),
+        )
+        device.findObject(By.text(SETTINGS_ENTRY_LABEL)).click()
+        assertTrue(
+            "the settings screen did not list the Vicky+ button section",
+            LauncherTestUtils.waitForText(SETTINGS_SECTION_VICKY_BUTTON),
+        )
+        device.findObject(By.text(SETTINGS_SECTION_VICKY_BUTTON)).click()
+        assertTrue(
+            "the Vicky+ button section did not list the tap action row",
+            LauncherTestUtils.waitForText(VICKY_BUTTON_EDIT_TAP),
+        )
+        device.findObject(By.text(VICKY_BUTTON_EDIT_TAP)).click()
+        // A built-in the picker alone offers. Waiting for the row's own label again would
+        // pass on the settings screen that is still behind the picker, and so prove nothing.
+        assertTrue(
+            "the tap action picker did not open",
+            LauncherTestUtils.waitForText(PICKER_ONLY_ACTION_LABEL),
+        )
+    }
+
+    private fun scrollUntilText(text: String, attempts: Int = 8): Boolean {
+        repeat(attempts) {
+            if (LauncherTestUtils.waitForText(text, 500L)) return true
+            device.swipe(
+                device.displayWidth / 2,
+                (device.displayHeight * 0.8f).toInt(),
+                device.displayWidth / 2,
+                (device.displayHeight * 0.25f).toInt(),
+                20,
+            )
+        }
+        return LauncherTestUtils.waitForText(text, 500L)
     }
 
     /**
@@ -415,6 +690,20 @@ class PrivateSpaceLauncherTest {
         const val NO_FAVORITES_LABEL = "0 on your home screen"
         const val CHOOSE_FAVORITES_LABEL = "Choose favorites"
         const val FAVORITES_TITLE = "Favorites"
+        const val SETTINGS_ENTRY_LABEL = "Vicky+ settings"
+        const val SETTINGS_ENTRY_SEARCH = "Vicky+ sett"
+        const val SETTINGS_SECTION_VICKY_BUTTON = "Vicky+ button"
+        const val VICKY_BUTTON_EDIT_TAP = "Edit tap action"
+        const val APP_SHORTCUTS_LABEL = "App shortcuts"
+
+        /** A built-in action only the picker lists, so seeing it means the picker is up. */
+        const val PICKER_ONLY_ACTION_LABEL = "Lock screen"
+
+        val MENU_SHORTCUT_FLAGS: Int =
+            LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
+                LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
+        val MENU_AND_PINNED_SHORTCUT_FLAGS: Int =
+            MENU_SHORTCUT_FLAGS or LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
 
         /** Long enough to be a press and not a tap, short enough not to stall the run. */
         const val LONG_PRESS_MS = 800
