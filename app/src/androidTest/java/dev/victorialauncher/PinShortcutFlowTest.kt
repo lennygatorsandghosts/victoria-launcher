@@ -149,9 +149,15 @@ class PinShortcutFlowTest {
         val row = device.wait(Until.findObject(By.text(removedLabel)), 10_000L)
         assertNotNull("expected the second pinned shortcut's row to long-press", row)
         row.longClick()
-        val remove = device.wait(Until.findObject(By.text("Remove shortcut")), 10_000L)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val removeShortcutText = context.getString(R.string.action_remove_shortcut)
+        val remove = device.wait(Until.findObject(By.text(removeShortcutText)), 10_000L)
         assertNotNull("expected the row's menu to offer Remove shortcut", remove)
         remove.click()
+        device.wait(
+            Until.findObject(By.text(context.getString(R.string.delete_bookmark_confirm))),
+            10_000L,
+        ).click()
 
         assertTrue(
             "expected only the removed shortcut's row to go",
@@ -183,9 +189,15 @@ class PinShortcutFlowTest {
         val row = device.wait(Until.findObject(By.text(label)), 10_000L)
         assertNotNull("expected the pinned shortcut's row to long-press", row)
         row.longClick()
-        val remove = device.wait(Until.findObject(By.text("Remove shortcut")), 10_000L)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val removeShortcutText = context.getString(R.string.action_remove_shortcut)
+        val remove = device.wait(Until.findObject(By.text(removeShortcutText)), 10_000L)
         assertNotNull("expected the row's menu to offer Remove shortcut", remove)
         remove.click()
+        device.wait(
+            Until.findObject(By.text(context.getString(R.string.delete_bookmark_confirm))),
+            10_000L,
+        ).click()
 
         assertTrue("expected the row to go from the home screen", device.wait(Until.gone(By.text(label)), 10_000L))
         val manager = InstrumentationRegistry.getInstrumentation().targetContext

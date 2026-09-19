@@ -9,14 +9,17 @@
     <string name="action_reset">Reset</string>
     <string name="action_create">Create</string>
     <string name="action_done">Done</string>
-    <string name="action_remove">Remove</string>
+    <string name="action_remove">Remove from home screen</string>
     <string name="action_app_info">App info</string>
     <string name="action_edit_layout">Edit layout</string>
     <string name="action_edit_icon_and_name">Edit icon &amp; name</string>
     <string name="action_move_to_folder">Move to folder…</string>
     <string name="action_change_icon">Change icon…</string>
     <string name="action_open_settings">Vicky+ settings</string>
-    <string name="action_remove_shortcut">Remove shortcut</string>
+    <string name="action_remove_shortcut">Delete bookmark</string>
+    <string name="delete_bookmark_title">Delete this bookmark?</string>
+    <string name="delete_bookmark_text">It will also leave the app list.</string>
+    <string name="delete_bookmark_confirm">Delete</string>
     <string name="action_import">Import</string>
     <string name="action_apply">Apply</string>
 

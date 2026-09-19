@@ -59,9 +59,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -1206,7 +1206,7 @@ private fun AppRow(
             if (app.kind == EntryKind.SHORTCUT) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.action_remove_shortcut)) },
-                    leadingIcon = { Icon(Icons.Filled.LinkOff, contentDescription = null) },
+                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
                     onClick = { onDismissMenu(); onUnpin() },
                 )
             }
