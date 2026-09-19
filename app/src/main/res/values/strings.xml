@@ -164,9 +164,14 @@
     <string name="text_color_material">Material</string>
     <string name="text_color_custom">Custom</string>
     <string name="text_color_pick">Pick a color</string>
+    <string name="settings_swipe_shortcuts">Swipe an app for its shortcuts</string>
+    <string name="settings_swipe_shortcuts_detail">Swipe a favorite or a row in the app list from left to right. Apps that publish none do nothing</string>
     <string name="settings_allow_rotation">Rotate with the device</string>
     <string name="settings_allow_rotation_detail">Off on phones: sideways there is about a third of the height this layout needs. On by default on tablets</string>
     <string name="settings_section_backup">Backup</string>
+    <string name="settings_crash_copy">Copy last crash</string>
+    <string name="settings_crash_detail">The launcher stopped unexpectedly. Copy the details to include in a bug report</string>
+    <string name="settings_crash_copied">Crash details copied</string>
     <string name="settings_export">Export settings</string>
     <string name="settings_export_detail">Save favorites, folders, layout and everything else to a file</string>
     <string name="settings_import">Import settings</string>
@@ -251,6 +256,21 @@
 
     <!-- Widgets -->
     <string name="widget_add">Add widget</string>
+    <string name="widget_clock_label">Clock and date</string>
+    <string name="widget_clock_description">The time and date, in the launcher\'s own style</string>
+    <string name="widget_clock_time">Time</string>
+    <string name="widget_clock_date">Date</string>
+    <string name="widget_clock_hour">Clock</string>
+    <string name="widget_clock_hour_system">System</string>
+    <string name="widget_clock_hour_12">12-hour</string>
+    <string name="widget_clock_hour_24">24-hour</string>
+    <string name="widget_clock_date_format">Date</string>
+    <string name="widget_clock_date_none">No date</string>
+    <string name="widget_clock_size">Time size</string>
+    <string name="widget_clock_date_size">Date size</string>
+    <string name="widget_clock_color">Color</string>
+    <string name="widget_clock_color_pick">Choose</string>
+    <string name="widget_clock_size_preview">12:34</string>
     <string name="widget_add_another">Add another widget</string>
     <string name="widget_remove_this">Remove this widget</string>
     <string name="widget_unavailable">This widget is no longer available</string>

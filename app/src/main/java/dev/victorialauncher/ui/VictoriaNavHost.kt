@@ -91,6 +91,7 @@ import dev.victorialauncher.ui.settings.HiddenAppsScreen
 import dev.victorialauncher.ui.settings.ManageFavoritesScreen
 import dev.victorialauncher.ui.settings.SettingsScreen
 import dev.victorialauncher.ui.theme.rememberContentColor
+import dev.victorialauncher.widget.ClockWidgetProvider
 import dev.victorialauncher.widget.WidgetPickerActivity
 import dev.victorialauncher.widget.WidgetSlotActions
 import kotlinx.coroutines.Dispatchers
@@ -400,6 +401,7 @@ fun VictoriaNavHost(
     val dimColor by app.prefs.dimColor.collectAsState(initial = 0xFF000000.toInt())
     val rotatesByDefault = LocalConfiguration.current.smallestScreenWidthDp >= 600
     val allowRotationPref by app.prefs.allowRotation.collectAsState(initial = null)
+    val swipeForShortcuts by app.prefs.swipeForShortcuts.collectAsState(initial = true)
     val allowRotation = allowRotationPref ?: rotatesByDefault
     val iconShape by app.prefs.iconShape.collectAsState(initial = IconShape.SYSTEM)
     val themedIcons by app.prefs.themedIcons.collectAsState(initial = false)
@@ -409,6 +411,27 @@ fun VictoriaNavHost(
     val statusBarPeekSeconds by app.prefs.statusBarPeekSeconds.collectAsState(initial = 5)
     val scrubBand by app.prefs.scrubBand.collectAsState(initial = null)
     val layoutDefaultsVersion by app.prefs.layoutDefaultsVersion.collectAsState(initial = null)
+
+    // A brand new launcher gets its own clock, so the home screen is not simply empty on first
+    // sight. Only ever on an install that has never been set up — the marker is written once,
+    // before anything the user does — and only while there is no widget at all, so nobody's
+    // arrangement is added to and a widget they removed does not come back.
+    LaunchedEffect(layoutDefaultsVersion, widgetIds) {
+        if (layoutDefaultsVersion != 1 || widgetIds.isNotEmpty()) return@LaunchedEffect
+        val manager = AppWidgetManager.getInstance(context)
+        val id = app.widgetHost.allocateAppWidgetId()
+        val bound = runCatching {
+            manager.bindAppWidgetIdIfAllowed(id, ClockWidgetProvider.componentName(context))
+        }.getOrDefault(false)
+        if (!bound) {
+            // Binding is refused unless this launcher holds the home role, which it may not
+            // yet on the very first run. The id is given back rather than left stranded.
+            runCatching { app.widgetHost.deleteAppWidgetId(id) }
+            return@LaunchedEffect
+        }
+        ClockWidgetProvider.render(context, manager, id)
+        app.prefs.addWidgetId(id)
+    }
     val welcomeSeen by app.prefs.welcomeSeen.collectAsState(initial = true)
     val niagaraOfferSeen by app.prefs.niagaraOfferSeen.collectAsState(initial = true)
     val hasCustomLayout by app.prefs.hasCustomLayout.collectAsState(initial = true)
@@ -554,6 +577,7 @@ fun VictoriaNavHost(
         nowPlayingEnabled = nowPlayingEnabled,
         edgeSide = edgeSide,
         azStripVisibility = azStripVisibility,
+        swipeForShortcuts = swipeForShortcuts,
         showAlphabet = showAlphabet,
         alignment = alignment,
         appListAlignment = appListAlignment,
@@ -742,6 +766,7 @@ fun VictoriaNavHost(
                 textColorCustom = textColorCustom,
                 dimColor = dimColor,
                 allowRotation = allowRotation,
+                swipeForShortcuts = swipeForShortcuts,
                 fontFile = fontFile,
                 iconShape = iconShape,
                 themedIcons = themedIcons,
@@ -783,6 +808,7 @@ fun VictoriaNavHost(
                 onSetTextColorCustom = { scope.launch { app.prefs.setTextColorCustom(it) } },
                 onSetDimColor = { scope.launch { app.prefs.setDimColor(it) } },
                 onSetAllowRotation = { scope.launch { app.prefs.setAllowRotation(it) } },
+                onSetSwipeForShortcuts = { scope.launch { app.prefs.setSwipeForShortcuts(it) } },
                 onExportSettings = { exportLauncher.launch("victoria-launcher-settings.json") },
                 onImportSettings = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
                 onSetIconShape = { scope.launch { app.prefs.setIconShape(it); clearIconCache() } },

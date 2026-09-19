@@ -98,6 +98,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.victorialauncher.data.AppInfo
+import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.Folder
 import dev.victorialauncher.data.HomeAlignment
@@ -109,6 +110,8 @@ import dev.victorialauncher.media.NowPlayingWidget
 import dev.victorialauncher.media.openNowPlayingApp
 import dev.victorialauncher.service.HapticUtil
 import dev.victorialauncher.ui.common.AppIcon
+import dev.victorialauncher.ui.common.shortcutSwipe
+import dev.victorialauncher.ui.common.AppShortcutMenu
 import dev.victorialauncher.ui.common.TouchAnchoredMenu
 import dev.victorialauncher.ui.common.LocalIconConfig
 import dev.victorialauncher.ui.common.EditAppDialog
@@ -161,6 +164,10 @@ private fun buildHomeItems(
 
 @Composable
 fun HomeScreen(
+    /** The side an always-present A-Z strip occupies, so content can keep out from under it. */
+    stripInsetSide: EdgeSide?,
+    /** Whether a sideways swipe on a row offers its app's shortcuts. */
+    swipeForShortcuts: Boolean,
     favorites: List<FavoriteEntry>,
     nameOverrides: Map<String, String>,
     iconSizeDp: Int,
@@ -732,6 +739,7 @@ fun HomeScreen(
                         }
 
                         is HomeItem.FolderItem -> FolderRow(
+                            swipeForShortcuts = swipeForShortcuts,
                             folder = item.folder,
                             members = item.folder.apps.mapNotNull { appsByKey[it] },
                             expanded = item.folder.id in expandedFolders,
@@ -770,6 +778,7 @@ fun HomeScreen(
                         )
 
                         is HomeItem.Favorite -> FavoriteRow(
+                            swipeForShortcuts = swipeForShortcuts,
                             app = item.app,
                             label = displayName(item.app),
                             editMode = editMode,
@@ -916,6 +925,7 @@ fun HomeScreen(
 /** One favorite: icon, optional name, press highlight and its context menu. */
 @Composable
 private fun FavoriteRow(
+    swipeForShortcuts: Boolean,
     app: AppInfo,
     label: String,
     editMode: Boolean,
@@ -945,6 +955,8 @@ private fun FavoriteRow(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val density = LocalDensity.current
+    var shortcutMenu by remember { mutableStateOf(false) }
+    var shortcutOffset by remember { mutableStateOf(DpOffset.Zero) }
 
     Box {
         Row(
@@ -963,6 +975,10 @@ private fun FavoriteRow(
                     } else {
                         Modifier
                             .recordTouchPosition(touchPosition)
+                            .shortcutSwipe(swipeForShortcuts && app.kind == EntryKind.APP) { start ->
+                                shortcutOffset = with(density) { DpOffset(start.x.toDp(), start.y.toDp()) }
+                                shortcutMenu = true
+                            }
                             .combinedClickable(
                                 interactionSource = interaction,
                                 indication = null,
@@ -1010,6 +1026,8 @@ private fun FavoriteRow(
                 Modifier.align(Alignment.CenterEnd).padding(end = EDIT_CONTROL_END_INSET).then(dragHandle),
             )
         }
+
+        AppShortcutMenu(app, shortcutMenu, shortcutOffset) { shortcutMenu = false }
 
         TouchAnchoredMenu(expanded = menuExpanded, offset = menuOffset, onDismissRequest = onDismissMenu) {
             DropdownMenuItem(
@@ -1064,6 +1082,7 @@ private fun FavoriteRow(
 /** A folder row, which expands in place to show its apps. */
 @Composable
 private fun FolderRow(
+    swipeForShortcuts: Boolean,
     folder: Folder,
     members: List<AppInfo>,
     expanded: Boolean,
@@ -1102,6 +1121,8 @@ private fun FolderRow(
     var memberMenuFor by remember { mutableStateOf<String?>(null) }
     var memberMenuOffset by remember { mutableStateOf(DpOffset.Zero) }
     val memberTouch = remember { mutableStateOf(Offset.Zero) }
+    var memberShortcutFor by remember { mutableStateOf<String?>(null) }
+    var memberShortcutOffset by remember { mutableStateOf(DpOffset.Zero) }
 
     Column {
         Box {
@@ -1219,6 +1240,11 @@ private fun FolderRow(
                                 },
                             )
                             .recordTouchPosition(memberTouch)
+                            .shortcutSwipe(swipeForShortcuts && member.kind == EntryKind.APP) { start ->
+                                memberShortcutOffset =
+                                    with(density) { DpOffset(start.x.toDp(), start.y.toDp()) }
+                                memberShortcutFor = member.key
+                            }
                             // A long press used to throw the app straight out of the folder,
                             // with no warning and no undo, while everywhere else on this
                             // screen it opens a menu. It opens one here too now, and removing
@@ -1253,11 +1279,19 @@ private fun FolderRow(
                         }
                     }
 
+                    AppShortcutMenu(
+                        member,
+                        memberShortcutFor == member.key,
+                        memberShortcutOffset,
+                    ) { memberShortcutFor = null }
+
                     TouchAnchoredMenu(
                         expanded = memberMenuFor == member.key,
                         offset = memberMenuOffset,
                         onDismissRequest = { memberMenuFor = null },
                     ) {
+                        // A folder member is an app like any other row, so it offers what the
+                        // app publishes the same way the rows outside a folder do.
                         if (member.kind == EntryKind.APP) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.action_app_info)) },

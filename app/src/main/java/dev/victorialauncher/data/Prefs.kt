@@ -105,6 +105,7 @@ class Prefs(private val context: Context) {
         val TEXT_COLOR_CUSTOM = intPreferencesKey("text_color_custom")
         val DIM_COLOR = intPreferencesKey("dim_color")
         val ALLOW_ROTATION = booleanPreferencesKey("allow_rotation")
+        val SWIPE_FOR_SHORTCUTS = booleanPreferencesKey("swipe_for_shortcuts")
         val THEMED_ICONS = booleanPreferencesKey("themed_icons")
         val ICON_SHAPE = stringPreferencesKey("icon_shape")
         val HIDE_STATUS_BAR = booleanPreferencesKey("hide_status_bar")
@@ -198,6 +199,7 @@ class Prefs(private val context: Context) {
             Keys.TEXT_COLOR_CUSTOM.name to int(Int.MIN_VALUE, Int.MAX_VALUE),
             Keys.DIM_COLOR.name to int(Int.MIN_VALUE, Int.MAX_VALUE),
             Keys.ALLOW_ROTATION.name to bool(),
+            Keys.SWIPE_FOR_SHORTCUTS.name to bool(),
             Keys.THEMED_ICONS.name to bool(),
             Keys.ICON_SHAPE.name to string(),
             Keys.HIDE_STATUS_BAR.name to bool(),
@@ -456,6 +458,16 @@ class Prefs(private val context: Context) {
 
     /** Blank means the localized default name, so nothing is stored until it is overridden. */
     val searchLabel: Flow<String> = data.map { it[Keys.SEARCH_LABEL] ?: "" }.distinctUntilChanged()
+
+    /**
+     * Whether swiping a row sideways offers the shortcuts its app publishes.
+     *
+     * On by default, since it is the quick way to reach them and the only one — they are not
+     * in the long-press menu, which is for setting a row up rather than using it. Off is for
+     * anyone who would rather their rows answered only to a tap.
+     */
+    val swipeForShortcuts: Flow<Boolean> =
+        data.map { it[Keys.SWIPE_FOR_SHORTCUTS] ?: true }.distinctUntilChanged()
 
     /**
      * Whether the launcher turns with the device.
@@ -876,6 +888,10 @@ class Prefs(private val context: Context) {
 
     suspend fun setSearchLabel(label: String) {
         context.dataStore.edit { it[Keys.SEARCH_LABEL] = label }
+    }
+
+    suspend fun setSwipeForShortcuts(v: Boolean) {
+        context.dataStore.edit { it[Keys.SWIPE_FOR_SHORTCUTS] = v }
     }
 
     suspend fun setAllowRotation(v: Boolean) {

@@ -1,0 +1,5 @@
+Fixed:
+* The status bar could stay visible after fully opening quick settings and closing it again, and stayed that way until a setting was changed.
+
+Changed:
+* Menus have rounder corners, matching the rest of the launcher.

@@ -59,6 +59,15 @@ import dev.victorialauncher.ui.theme.rememberWallpaperPalette
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
+import androidx.compose.foundation.lazy.items
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import dev.victorialauncher.data.CrashLog
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -108,6 +117,7 @@ fun SettingsScreen(
     textColorCustom: Int,
     dimColor: Int,
     allowRotation: Boolean,
+    swipeForShortcuts: Boolean,
     fontFile: String?,
     iconShape: IconShape,
     themedIcons: Boolean,
@@ -150,6 +160,7 @@ fun SettingsScreen(
     onSetTextColorCustom: (Int) -> Unit,
     onSetDimColor: (Int) -> Unit,
     onSetAllowRotation: (Boolean) -> Unit,
+    onSetSwipeForShortcuts: (Boolean) -> Unit,
     onExportSettings: () -> Unit,
     onImportSettings: () -> Unit,
     onPickFontFile: (Uri) -> Unit,
@@ -184,6 +195,10 @@ fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     val surface = MaterialTheme.colorScheme.surface
+    val context = LocalContext.current
+    val clipboard = remember(context) {
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    }
 
     // A width in dp means nothing until you see it against the screen it is measured on, so
     // adjusting it paints the zone down the edges it would actually occupy. It fades out on
@@ -205,14 +220,22 @@ fun SettingsScreen(
         label = "edgePreviewAlpha",
     )
 
+    // One screen, shown a section at a time. Separate destinations would mean threading every
+    // one of these settings through a route of its own, for a list that is only ever reached
+    // from here — so the sections stay where they are and the screen shows one of them.
+    var openSection by remember { mutableStateOf<SettingsSection?>(null) }
+    BackHandler(enabled = openSection != null) { openSection = null }
+
     Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = surface,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
+                title = {
+                    Text(stringResource(openSection?.labelRes ?: R.string.settings_title))
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { if (openSection != null) openSection = null else onBack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
@@ -228,7 +251,37 @@ fun SettingsScreen(
                 .background(surface)
                 .fillMaxWidth(),
         ) {
-            item {
+            if (openSection == null) {
+                items(SettingsSection.entries) { section ->
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openSection = section }
+                                .padding(horizontal = 16.dp, vertical = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                stringResource(section.labelRes),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                modifier = Modifier.padding(4.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (openSection == SettingsSection.APPEARANCE) item {
                 Section(stringResource(R.string.settings_section_appearance)) {
                     // Live preview of exactly how a home row will render.
                     RowPreview(previewApp, iconSizeDp, labelSizeSp, font, fontFile, itemSpacingDp)
@@ -341,7 +394,7 @@ fun SettingsScreen(
                 }
             }
 
-            item {
+            if (openSection == SettingsSection.BEHAVIOR) item {
                 Section(stringResource(R.string.settings_section_behavior)) {
                     SwitchRowWithDetail(
                         label = stringResource(R.string.settings_haptics),
@@ -412,6 +465,13 @@ fun SettingsScreen(
                     )
                     RowDivider()
                     SwitchRowWithDetail(
+                        label = stringResource(R.string.settings_swipe_shortcuts),
+                        detail = stringResource(R.string.settings_swipe_shortcuts_detail),
+                        checked = swipeForShortcuts,
+                        onCheckedChange = onSetSwipeForShortcuts,
+                    )
+                    RowDivider()
+                    SwitchRowWithDetail(
                         label = stringResource(R.string.settings_allow_rotation),
                         detail = stringResource(R.string.settings_allow_rotation_detail),
                         checked = allowRotation,
@@ -471,7 +531,7 @@ fun SettingsScreen(
                 }
             }
 
-            item {
+            if (openSection == SettingsSection.VICKY_BUTTON) item {
                 Section(stringResource(R.string.settings_section_vicky_button)) {
                     SwitchRow(stringResource(R.string.settings_vicky_button_show), vbuttonEnabled, onSetVButtonEnabled)
                     RowDivider()
@@ -501,7 +561,7 @@ fun SettingsScreen(
                 }
             }
 
-            item {
+            if (openSection == SettingsSection.NOW_PLAYING) item {
                 Section(stringResource(R.string.settings_section_now_playing)) {
                     SwitchRow(stringResource(R.string.settings_now_playing_show), nowPlayingEnabled, onSetNowPlayingEnabled)
                     if (nowPlayingEnabled) {
@@ -532,8 +592,8 @@ fun SettingsScreen(
                 }
             }
 
-            item { SectionLabel(stringResource(R.string.settings_section_apps)) }
-            item {
+            if (openSection == SettingsSection.APPS) item { SectionLabel(stringResource(R.string.settings_section_apps)) }
+            if (openSection == SettingsSection.APPS) item {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -590,7 +650,7 @@ fun SettingsScreen(
                 }
             }
 
-            item {
+            if (openSection == SettingsSection.SEARCH) item {
                 SearchButtonSection(
                     urlTemplate = searchUrlTemplate,
                     label = searchLabel,
@@ -599,7 +659,7 @@ fun SettingsScreen(
                 )
             }
 
-            item {
+            if (openSection == SettingsSection.BACKUP) item {
                 Section(stringResource(R.string.settings_section_backup)) {
                     BackupRow(
                         label = stringResource(R.string.settings_export),
@@ -615,7 +675,7 @@ fun SettingsScreen(
                 }
             }
 
-            item {
+            if (openSection == SettingsSection.ABOUT) item {
                 Section(stringResource(R.string.settings_section_about)) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                         Text(stringResource(R.string.app_name), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
@@ -623,6 +683,24 @@ fun SettingsScreen(
                             stringResource(R.string.settings_version, BuildConfig.VERSION_NAME),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        )
+                    }
+                    // Only after a crash, so there is nothing here to explain the rest of the
+                    // time. A launcher draws other apps' widgets with their own code, so the
+                    // trace is often the only thing that says whose crash it was.
+                    val crash = remember { CrashLog.read(context) }
+                    var crashCleared by remember { mutableStateOf(false) }
+                    if (crash != null && !crashCleared) {
+                        RowDivider()
+                        BackupRow(
+                            label = stringResource(R.string.settings_crash_copy),
+                            detail = stringResource(R.string.settings_crash_detail),
+                            onClick = {
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Victoria crash", crash))
+                                Toast.makeText(context, R.string.settings_crash_copied, Toast.LENGTH_SHORT).show()
+                                CrashLog.clear(context)
+                                crashCleared = true
+                            },
                         )
                     }
                 }
@@ -779,8 +857,9 @@ private fun SwitchRowWithDetail(
 }
 
 /** Slider plus a pair of steppers, since dragging to an exact value is fiddly. */
+/** Shared with the clock widget's own settings, so a size is set the same way everywhere. */
 @Composable
-private fun SliderRow(
+internal fun SliderRow(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
@@ -1036,6 +1115,20 @@ private fun TextColorRow(
     }
 }
 
+/** The settings screen shows one of these at a time; the first screen is the list of them. */
+private enum class SettingsSection(@StringRes val labelRes: Int) {
+    APPEARANCE(R.string.settings_section_appearance),
+    BEHAVIOR(R.string.settings_section_behavior),
+    // The fork's own sections, folded into upstream's one-section-at-a-time list next to the
+    // upstream section each one sat beside when the settings were one long page.
+    VICKY_BUTTON(R.string.settings_section_vicky_button),
+    APPS(R.string.settings_section_apps),
+    SEARCH(R.string.settings_section_search),
+    NOW_PLAYING(R.string.settings_section_now_playing),
+    BACKUP(R.string.settings_section_backup),
+    ABOUT(R.string.settings_section_about),
+}
+
 @Composable
 private fun BackupRow(label: String, detail: String, onClick: () -> Unit) {
     Row(
@@ -1099,7 +1192,7 @@ private fun DimColorRow(dimColor: Int, onSetDimColor: (Int) -> Unit) {
 /** A swatch to tap or a hex value to type; enough for picking a text color, and no library. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ColorPickerDialog(initial: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
+internal fun ColorPickerDialog(initial: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) {
     var hex by remember { mutableStateOf(String.format("%06X", initial and 0xFFFFFF)) }
     val parsed = remember(hex) { hex.toIntOrNull(16)?.let { 0xFF000000.toInt() or it } }
 
@@ -1413,8 +1506,9 @@ private fun EdgeSideRow(selected: EdgeSide, onSelect: (EdgeSide) -> Unit) {
     }
 }
 
+/** Shared with the clock widget's own settings, which offers the same kind of choices. */
 @Composable
-private fun FilledChip(
+internal fun FilledChip(
     label: String,
     selected: Boolean,
     fontFamily: FontFamily? = null,

@@ -555,6 +555,16 @@ fun HomeRoute(
         onDispose { ViewCompat.setSystemGestureExclusionRects(view, emptyList()) }
     }
 
+    // Worked out once, because two things need it: the strip itself, and the home content
+    // that has to keep clear of a strip which is always there. A widget runs the full width,
+    // so without this the strip simply sits on top of one.
+    val stripAlwaysVisible = when (settings.azStripVisibility) {
+        AzStripVisibility.NEVER -> false
+        AzStripVisibility.ALWAYS -> true
+        AzStripVisibility.LANDSCAPE ->
+            LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -628,6 +638,8 @@ fun HomeRoute(
                 .graphicsLayer { alpha = homeContentAlpha },
         ) {
             HomeScreen(
+                stripInsetSide = if (!stripAlwaysVisible) null else settings.edgeSide,
+                swipeForShortcuts = settings.swipeForShortcuts,
                 favorites = favorites,
                 nameOverrides = nameOverrides,
                 iconSizeDp = settings.iconSizeDp,
@@ -834,6 +846,7 @@ fun HomeRoute(
                 edgeSide = settings.edgeSide,
                 statusBarHidden = settings.hideStatusBarAppList,
                 searchModel = searchModel,
+                swipeForShortcuts = settings.swipeForShortcuts,
                 searchEnabled = settings.appListSearch,
                 forceSearchVisible = appListForceSearch,
                 focusSearchTick = appListFocusSearchTick,
@@ -856,18 +869,13 @@ fun HomeRoute(
         // the two were drawn on top of each other.
         // Sideways the strip is worth the room it takes; upright the same setting can be too
         // much, so a phone in a car mount can have it there without carrying it everywhere.
-        val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val showIdleStrip = when {
+        val showIdleStripNow = when {
             appListVisible -> false
             bandEditMode -> true
             homeEditMode -> false
-            else -> when (settings.azStripVisibility) {
-                AzStripVisibility.NEVER -> false
-                AzStripVisibility.ALWAYS -> true
-                AzStripVisibility.LANDSCAPE -> landscape
-            }
+            else -> stripAlwaysVisible
         }
-        if (showIdleStrip) {
+        if (showIdleStripNow) {
             EdgeScrubber(
                 letters = listModel.letters,
                 scrubY = { null },
@@ -1052,6 +1060,7 @@ data class HomeSettings(
     val nowPlayingEnabled: Boolean,
     val edgeSide: EdgeSide,
     val azStripVisibility: AzStripVisibility,
+    val swipeForShortcuts: Boolean,
     val showAlphabet: Boolean,
     val alignment: HomeAlignment,
     val appListAlignment: HomeAlignment,
