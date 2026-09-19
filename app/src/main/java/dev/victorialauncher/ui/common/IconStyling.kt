@@ -37,6 +37,13 @@ fun renderIcon(
     themed: Boolean,
     themedBackground: Int,
     themedForeground: Int,
+    /**
+     * Mask a drawable that is not adaptive to [shape] as well. A browser's bookmark tile is a
+     * plain square bitmap, so without this it sits among the round or squircle app icons as a
+     * grey box. Only passed for shortcut rows: a legacy app icon may be drawn edge to edge,
+     * and cutting its corners would lose part of the logo.
+     */
+    maskNonAdaptive: Boolean = false,
 ): Bitmap {
     val adaptive = drawable as? AdaptiveIconDrawable
 
@@ -47,7 +54,11 @@ fun renderIcon(
         null
     }
 
-    if (adaptive == null) return drawable.toSquareBitmap(px)
+    if (adaptive == null) {
+        val square = drawable.toSquareBitmap(px)
+        if (!maskNonAdaptive || shape == IconShape.SYSTEM) return square
+        return square.maskedTo(shapePath(shape, px))
+    }
 
     val layers = if (mono != null) {
         // The monochrome layer is a silhouette meant to be tinted and set on a filled shape,

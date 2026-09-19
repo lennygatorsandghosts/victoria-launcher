@@ -231,9 +231,11 @@ internal fun rasterise(
 ): ImageBitmap? {
     if (px <= 0) return null
     val overrideValue = overrides[app.key]
-    val styled = overrideValue == null && iconPackPackage == null
-    val style = if (styled) base else base.copy(shape = IconShape.SYSTEM, themed = false)
     val isShortcut = app.kind == EntryKind.SHORTCUT
+    // An icon pack is matched by component, so it never applies to a shortcut row anyway —
+    // having one selected must not be what stops a bookmark's tile being masked to the shape.
+    val styled = overrideValue == null && (iconPackPackage == null || isShortcut)
+    val style = if (styled) base else base.copy(shape = IconShape.SYSTEM, themed = false)
     val cacheKey = iconCacheKey(
         app,
         iconPackPackage,
@@ -255,7 +257,15 @@ internal fun rasterise(
         val drawable = decodeIconOverride(context, victoriaApp, overrideValue)
             ?: shortcutOwn
             ?: resolveDrawable(context, victoriaApp, app, iconPackPackage, overrideValue)
-        val rendered = renderIcon(drawable, px, style.shape, style.themed, style.background, style.foreground)
+        val rendered = renderIcon(
+            drawable,
+            px,
+            style.shape,
+            style.themed,
+            style.background,
+            style.foreground,
+            maskNonAdaptive = isShortcut,
+        )
         val geometry = badgeGeometry(px)
         val finalBitmap = if (
             badgePlan(isShortcut, badges, publisher != null, hasOwnIcon) == BadgePlan.BADGE &&
