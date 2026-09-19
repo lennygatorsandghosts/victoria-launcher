@@ -529,7 +529,10 @@ class AppRepository(
      */
     private fun listableSerial(user: UserHandle, mainUser: UserHandle): Long? {
         val isMain = user == mainUser
+        // -1 is what the platform answers for a user it cannot find, e.g. one removed between
+        // being listed and being asked about; only a positive number is an answer.
         val serial = runCatching { userManager.getSerialNumberForUser(user) }.getOrNull()
+            ?.takeIf { isMain || it > 0L }
         // Only asked about a profile the answers could change anything for: the one we run in
         // is always listed, and below Android 15 there is no private space for either answer
         // to describe.
@@ -600,7 +603,9 @@ class AppRepository(
             // worth refusing outright — so it becomes an uncertain space rather than an open
             // one, and falls back to the last serial this space was known by.
             val serial = runCatching { userManager.getSerialNumberForUser(user) }.getOrNull()
-                ?.takeIf { it != 0L }
+                // Zero is the launcher's own profile and -1 a user the platform cannot find;
+                // concealing by either conceals nothing, so both mean "cannot say".
+                ?.takeIf { it > 0L }
                 ?: return uncertain(user)
             lastKnownPrivateSerial = serial
             return when (privateSpaceKind(type, quietMode(user))) {

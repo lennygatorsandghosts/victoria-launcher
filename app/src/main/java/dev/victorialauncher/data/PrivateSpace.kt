@@ -136,7 +136,9 @@ fun shouldListProfile(
     // The profile the launcher itself runs in. Its serial is zero by definition, and its keys
     // have never carried a suffix, so none of the rest applies to it.
     isMainUser -> true
-    serial == null || serial == 0L -> false
+    // Zero is the launcher's own profile, -1 is a user the platform cannot find: neither can
+    // key a row that concealment would later match, so neither may be listed.
+    serial == null || serial <= 0L -> false
     // A private space cannot exist below Android 15, so nothing found there can be one.
     sdk < PRIVATE_SPACE_SDK -> true
     userType == null -> false
@@ -153,7 +155,7 @@ fun shouldListProfile(
  * point is to decide about keys whose rows are deliberately not there to be looked up.
  */
 fun isConcealed(concealedSerial: Long, key: String): Boolean =
-    concealedSerial != 0L && EntryKeys.userSerial(key) == concealedSerial
+    concealedSerial > 0L && EntryKeys.userSerial(key) == concealedSerial
 
 /**
  * Whether a stored key has to be left out of a screen that lists stored keys, where [resolves]
