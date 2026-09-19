@@ -53,7 +53,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
@@ -1075,20 +1075,20 @@ private fun FavoriteRow(
                     onClick = onAppInfo,
                 )
             }
-            // Distinct from Remove below, which only takes it off the home screen: this hands
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.action_remove)) },
+                leadingIcon = { Icon(Icons.Filled.RemoveCircleOutline, contentDescription = null) },
+                onClick = onRemove,
+            )
+            // Distinct from Remove above, which only takes it off the home screen: this hands
             // it back to the app that pinned it, and it leaves the launcher entirely.
             if (app.kind == EntryKind.SHORTCUT) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.action_remove_shortcut)) },
-                    leadingIcon = { Icon(Icons.Filled.LinkOff, contentDescription = null) },
+                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
                     onClick = onUnpin,
                 )
             }
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.action_remove)) },
-                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                onClick = onRemove,
-            )
             HorizontalDivider()
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.action_edit_icon_and_name)) },
@@ -1317,7 +1317,7 @@ private fun FolderRow(
                         if (member.kind == EntryKind.SHORTCUT) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.action_remove_shortcut)) },
-                                leadingIcon = { Icon(Icons.Filled.LinkOff, contentDescription = null) },
+                                leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
                                 onClick = { memberMenuFor = null; onMemberUnpin(member) },
                             )
                         }
@@ -1334,7 +1334,7 @@ private fun FolderRow(
                         HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.home_folder_remove_app)) },
-                            leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                            leadingIcon = { Icon(Icons.Filled.RemoveCircleOutline, contentDescription = null) },
                             onClick = { memberMenuFor = null; onRemoveApp(member) },
                         )
                         HorizontalDivider()

@@ -9,14 +9,14 @@
     <string name="action_reset">Сбросить</string>
     <string name="action_create">Создать</string>
     <string name="action_done">Готово</string>
-    <string name="action_remove">Убрать</string>
+    <string name="action_remove">Убрать с главного экрана</string>
     <string name="action_app_info">О приложении</string>
     <string name="action_edit_layout">Редактировать экран</string>
     <string name="action_edit_icon_and_name">Персонализировать</string>
     <string name="action_move_to_folder">Переместить в папку…</string>
     <string name="action_change_icon">Изменить иконку…</string>
     <string name="action_open_settings">Настройки Victoria</string>
-    <string name="action_remove_shortcut">Удалить ярлык</string>
+    <string name="action_remove_shortcut">Удалить закладку</string>
 
     <!-- Главный экран -->
     <string name="home_drag_handle">Сортировать</string>
