@@ -152,7 +152,7 @@
     <string name="settings_allow_rotation_detail">На телефонах отключено: доступная ширина составляет лишь около трети высоты, необходимой для такой компоновки. На планшетах включено по умолчанию.</string>
     <string name="settings_section_backup">Резервное копирование</string>
     <string name="settings_crash_copy">Скопировать последнюю ошибку</string>
-    <string name="settings_crash_detail">Работа программы Victoria Launcher Завершилась с ошибкой. Скопируйте сведения об ошибке, чтобы включить их в отчет об ошибке.</string>
+    <string name="settings_crash_detail">Работа программы Vicky+ завершилась с ошибкой. Скопируйте сведения об ошибке, чтобы включить их в отчет об ошибке.</string>
     <string name="settings_crash_copied">Сведения об ошибке сохранёны в буфере обмена</string>
     <string name="settings_export">Экспортировать настройк</string>
     <string name="settings_export_detail">Сохранить избранное, папки, компоновку и прочее в один файл</string>
