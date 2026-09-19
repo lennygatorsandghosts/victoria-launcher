@@ -37,8 +37,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -80,6 +82,8 @@ import dev.victorialauncher.BuildConfig
 import dev.victorialauncher.data.AppFont
 import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.AzStripVisibility
+import dev.victorialauncher.data.ButtonSlot
+import dev.victorialauncher.data.SearchUrl
 import dev.victorialauncher.data.IconShape
 import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.HomeAlignment
@@ -181,6 +185,14 @@ fun SettingsScreen(
     onOpenHiddenApps: () -> Unit,
     onOpenFavorites: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    fbuttonEnabled: Boolean,
+    fbuttonActionLabels: Map<ButtonSlot, String>,
+    onSetFButtonEnabled: (Boolean) -> Unit,
+    onOpenButtonActionPicker: (ButtonSlot) -> Unit,
+    searchUrlTemplate: String,
+    searchLabel: String,
+    onSetSearchUrlTemplate: (String) -> Unit,
+    onSetSearchLabel: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     val surface = MaterialTheme.colorScheme.surface
@@ -552,6 +564,44 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+
+            if (openSection == SettingsSection.BUTTON) item {
+                Section(stringResource(R.string.settings_section_button)) {
+                    SwitchRow(stringResource(R.string.settings_button_show), fbuttonEnabled, onSetFButtonEnabled)
+                    RowDivider()
+                    ButtonActionRow(
+                        label = stringResource(R.string.button_edit_tap),
+                        value = fbuttonActionLabels[ButtonSlot.TAP].orEmpty(),
+                        onClick = { onOpenButtonActionPicker(ButtonSlot.TAP) },
+                    )
+                    RowDivider()
+                    ButtonActionRow(
+                        label = stringResource(R.string.button_edit_swipe_up),
+                        value = fbuttonActionLabels[ButtonSlot.SWIPE_UP].orEmpty(),
+                        onClick = { onOpenButtonActionPicker(ButtonSlot.SWIPE_UP) },
+                    )
+                    RowDivider()
+                    ButtonActionRow(
+                        label = stringResource(R.string.button_edit_swipe_left),
+                        value = fbuttonActionLabels[ButtonSlot.SWIPE_LEFT].orEmpty(),
+                        onClick = { onOpenButtonActionPicker(ButtonSlot.SWIPE_LEFT) },
+                    )
+                    RowDivider()
+                    ButtonActionRow(
+                        label = stringResource(R.string.button_edit_swipe_right),
+                        value = fbuttonActionLabels[ButtonSlot.SWIPE_RIGHT].orEmpty(),
+                        onClick = { onOpenButtonActionPicker(ButtonSlot.SWIPE_RIGHT) },
+                    )
+                }
+            }
+            if (openSection == SettingsSection.BUTTON) item {
+                SearchButtonSection(
+                    urlTemplate = searchUrlTemplate,
+                    label = searchLabel,
+                    onSetUrlTemplate = onSetSearchUrlTemplate,
+                    onSetLabel = onSetSearchLabel,
+                )
             }
 
             if (openSection == SettingsSection.APPS) item { SectionLabel(stringResource(R.string.settings_section_apps)) }
@@ -1027,6 +1077,7 @@ private enum class SettingsSection(@StringRes val labelRes: Int) {
     BEHAVIOR(R.string.settings_section_behavior),
     APPS(R.string.settings_section_apps),
     NOW_PLAYING(R.string.settings_section_now_playing),
+    BUTTON(R.string.settings_section_button),
     BACKUP(R.string.settings_section_backup),
     ABOUT(R.string.settings_section_about),
 }
@@ -1198,6 +1249,165 @@ private fun AccessibilityActions(onOpenAccessibilitySettings: () -> Unit, onOpen
         FilledChip(stringResource(R.string.settings_app_info), selected = false, onClick = onOpenAppInfo)
         FilledChip(stringResource(R.string.settings_enable), selected = false, onClick = onOpenAccessibilitySettings)
     }
+}
+
+@Composable
+private fun ButtonActionRow(label: String, value: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                value,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowForwardIos,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+        )
+    }
+}
+
+/**
+ * Unlike every slider and switch elsewhere on this screen, a keystroke here is NOT saved
+ * immediately: each write to Prefs is picked up by `LaunchedEffect(searchUrlTemplate,
+ * searchLabel) { reloadApps() }` in VictoriaNavHost, which re-runs a full, uncancellable
+ * `queryAllApps()` over every launchable activity in every profile plus shortcut queries — fine
+ * once per edit, not once per character. Text is kept in local state and committed to Prefs
+ * ~400ms after the last keystroke, and immediately on leaving the screen so nothing typed is
+ * lost to a debounce that never got to fire. Inline validation still reads the local text
+ * directly, so it updates live regardless of the debounce.
+ *
+ * An empty template is a valid state (the feature simply stays off), so nothing is flagged as
+ * an error until something is typed.
+ */
+@Composable
+private fun SearchButtonSection(
+    urlTemplate: String,
+    label: String,
+    onSetUrlTemplate: (String) -> Unit,
+    onSetLabel: (String) -> Unit,
+) {
+    // onSetUrlTemplate/onSetLabel are fresh lambdas every time the caller recomposes, so the
+    // debounce coroutine and DisposableEffect below — which, once launched, keep running with
+    // whatever they closed over until they fire — read the latest one through this instead.
+    val currentOnSetUrlTemplate by rememberUpdatedState(onSetUrlTemplate)
+    val currentOnSetLabel by rememberUpdatedState(onSetLabel)
+
+    var urlText by remember { mutableStateOf(urlTemplate) }
+    var labelText by remember { mutableStateOf(label) }
+    // What this screen itself last pushed to Prefs (or started from). Lets an external change
+    // to the stored value — an import landing while this screen is open, or the DataStore
+    // Flow's real value arriving after collectAsState's initial "" — be told apart from the
+    // echo of this screen's own debounced write, and adopted only while the field isn't
+    // mid-edit, so it never clobbers an unsaved keystroke.
+    var lastPushedUrl by remember { mutableStateOf(urlTemplate) }
+    var lastPushedLabel by remember { mutableStateOf(label) }
+    LaunchedEffect(urlTemplate) {
+        if (urlTemplate != lastPushedUrl && urlText == lastPushedUrl) urlText = urlTemplate
+        lastPushedUrl = urlTemplate
+    }
+    LaunchedEffect(label) {
+        if (label != lastPushedLabel && labelText == lastPushedLabel) labelText = label
+        lastPushedLabel = label
+    }
+
+    val validation = remember(urlText) { SearchUrl.validate(urlText) }
+
+    LaunchedEffect(urlText) {
+        if (urlText == lastPushedUrl) return@LaunchedEffect
+        delay(400)
+        currentOnSetUrlTemplate(urlText)
+        lastPushedUrl = urlText
+    }
+    LaunchedEffect(labelText) {
+        if (labelText == lastPushedLabel) return@LaunchedEffect
+        delay(400)
+        currentOnSetLabel(labelText)
+        lastPushedLabel = labelText
+    }
+    // Leaving the screen — back press, or this section scrolling out and recomposing away —
+    // cancels those LaunchedEffects before a pending debounce can fire, so anything still
+    // unsaved is flushed here instead.
+    DisposableEffect(Unit) {
+        onDispose {
+            if (urlText != lastPushedUrl) currentOnSetUrlTemplate(urlText)
+            if (labelText != lastPushedLabel) currentOnSetLabel(labelText)
+        }
+    }
+
+    Section(stringResource(R.string.settings_section_search)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                stringResource(R.string.settings_search_button_detail, "%s"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+            OutlinedTextField(
+                value = labelText,
+                onValueChange = { labelText = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_search_button_label)) },
+                placeholder = { Text(stringResource(R.string.search_entry_default_label)) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = urlText,
+                onValueChange = { urlText = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_search_button_url)) },
+                placeholder = { Text(stringResource(R.string.settings_search_button_url_hint)) },
+                isError = urlText.isNotBlank() && validation is SearchUrl.Validation.Invalid,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (urlText.isNotBlank()) {
+                when (validation) {
+                    is SearchUrl.Validation.Invalid -> {
+                        searchUrlErrorMessage(validation.reason)?.let { message ->
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                    }
+                    is SearchUrl.Validation.Ok -> if (validation.insecure) {
+                        Text(
+                            stringResource(R.string.settings_search_button_insecure),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun searchUrlErrorMessage(reason: SearchUrl.Reason): String? = when (reason) {
+    // Not a rejection the field ever shows: an empty template just means the feature is off,
+    // and the caller already keeps this branch from being reached while the field is blank.
+    SearchUrl.Reason.BLANK -> null
+    SearchUrl.Reason.TOO_LONG -> stringResource(R.string.search_url_error_too_long)
+    SearchUrl.Reason.CONTROL_CHARACTER -> stringResource(R.string.search_url_error_control_character)
+    SearchUrl.Reason.NO_PLACEHOLDER -> stringResource(R.string.search_url_error_no_placeholder, "%s")
+    SearchUrl.Reason.MULTIPLE_PLACEHOLDERS -> stringResource(R.string.search_url_error_multiple_placeholders, "%s")
+    SearchUrl.Reason.UNSUPPORTED_SCHEME -> stringResource(R.string.search_url_error_unsupported_scheme)
+    SearchUrl.Reason.USERINFO_NOT_ALLOWED -> stringResource(R.string.search_url_error_userinfo)
+    SearchUrl.Reason.PERCENT_ESCAPE_IN_AUTHORITY -> stringResource(R.string.search_url_error_percent_in_authority)
+    SearchUrl.Reason.MISSING_HOST -> stringResource(R.string.search_url_error_missing_host)
+    SearchUrl.Reason.PLACEHOLDER_IN_AUTHORITY -> stringResource(R.string.search_url_error_placeholder_in_authority, "%s")
+    SearchUrl.Reason.MALFORMED -> stringResource(R.string.search_url_error_malformed)
 }
 
 @Composable
