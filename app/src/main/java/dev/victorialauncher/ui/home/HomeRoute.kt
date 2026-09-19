@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package dev.victorialauncher.ui.home
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.graphics.Rect
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -51,6 +53,8 @@ import dev.victorialauncher.TypedKey
 import dev.victorialauncher.VictoriaApp
 import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.AzStripVisibility
+import dev.victorialauncher.data.ButtonAction
+import dev.victorialauncher.data.ButtonSlot
 import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
@@ -58,6 +62,7 @@ import dev.victorialauncher.data.Folder
 import dev.victorialauncher.data.HomePaddings
 import dev.victorialauncher.data.QuickLaunchSlot
 import dev.victorialauncher.data.PaddingSlot
+import dev.victorialauncher.data.SearchUrl
 import dev.victorialauncher.data.folderToken
 import dev.victorialauncher.media.NowPlayingBus
 import dev.victorialauncher.media.isListenerEnabled
@@ -70,7 +75,10 @@ import dev.victorialauncher.ui.applist.EdgeTouchZone
 import dev.victorialauncher.ui.applist.ScrubBand
 import dev.victorialauncher.ui.applist.ScrubState
 import dev.victorialauncher.ui.applist.buildAppListModel
+import dev.victorialauncher.ui.button.ButtonEditSheet
+import dev.victorialauncher.ui.button.FloatingButton
 import dev.victorialauncher.ui.common.FolderPickerDialog
+import dev.victorialauncher.ui.common.WebSearchBar
 import dev.victorialauncher.widget.WidgetSlotActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -197,6 +205,12 @@ fun HomeRoute(
     var favBand by remember { mutableStateOf<ScrubBand?>(null) }
     var homeEditMode by remember { mutableStateOf(false) }
     var folderPickerFor by remember { mutableStateOf<AppInfo?>(null) }
+    var buttonSheetOpen by remember { mutableStateOf(false) }
+
+    // Set while the button's web-search bar is up. There is no app-list search row in this
+    // fork to carry an AppInfo through, so a direct button press always leaves this null.
+    var searchEntry by remember { mutableStateOf<AppInfo?>(null) }
+    var webSearchOpen by remember { mutableStateOf(false) }
 
     val nowPlaying by NowPlayingBus.state.collectAsState()
     val listenerGranted = remember(homeIntentTick) { isListenerEnabled(context) }
@@ -301,6 +315,51 @@ fun HomeRoute(
             delay(LAUNCH_CLOSE_TIMEOUT_MS)
             launchClose = null
             closeAppList()
+        }
+    }
+
+    fun openAppListForSearch() {
+        if (homeEditMode || bandEditMode) return
+        appListVisible = true
+        scope.launch { openAnim.snapTo(openDistancePx) }
+    }
+
+    // The one place a button press turns into something happening. Every ButtonAction case is
+    // named and there is no else, so a case added later cannot fall through unhandled: the
+    // compiler stops here until someone has said what it does.
+    fun runButtonAction(action: ButtonAction) {
+        when (action) {
+            ButtonAction.None -> Unit
+            is ButtonAction.LaunchEntry -> appsByKey[action.key]?.let { app.appRepository.launch(it) } ?: Unit
+            ButtonAction.WebSearch -> {
+                searchEntry = null
+                webSearchOpen = true
+            }
+            ButtonAction.SearchApps -> openAppListForSearch()
+            ButtonAction.Notifications -> {
+                if (!SystemUi.expandNotificationShade(context)) {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.toast_enable_accessibility_shade),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+            ButtonAction.LockScreen -> lockOrExplain()
+            ButtonAction.LauncherSettings -> onNavigate("settings")
+            is ButtonAction.OpenUrl -> {
+                try {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
+                            .addCategory(Intent.CATEGORY_BROWSABLE)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(context, R.string.toast_open_url_failed, Toast.LENGTH_SHORT).show()
+                } catch (e: SecurityException) {
+                    Toast.makeText(context, R.string.toast_open_url_failed, Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -783,6 +842,67 @@ fun HomeRoute(
                 )
             }
         }
+
+        if (buttonSheetOpen) {
+            ButtonEditSheet(
+                actions = settings.fbuttonActions,
+                resolveEntryLabel = { key -> appsByKey[key]?.let { nameOverrides[it.key] ?: it.label } },
+                onEdit = { slot ->
+                    buttonSheetOpen = false
+                    onNavigate("buttonaction/" + slot.name)
+                },
+                onOpenSettings = {
+                    buttonSheetOpen = false
+                    onNavigate("settings")
+                },
+                onDismiss = { buttonSheetOpen = false },
+            )
+        }
+
+        if (webSearchOpen) {
+            val entry = searchEntry
+            WebSearchBar(
+                onSubmit = { query ->
+                    val url = SearchUrl.build(settings.searchUrlTemplate, query)
+                    if (url != null) {
+                        try {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    .addCategory(Intent.CATEGORY_BROWSABLE)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            if (entry != null) scope.launch { app.prefs.incrementLaunchCount(entry.key) }
+                        } catch (e: ActivityNotFoundException) {
+                            Toast.makeText(context, R.string.toast_search_failed, Toast.LENGTH_SHORT).show()
+                        } catch (e: SecurityException) {
+                            Toast.makeText(context, R.string.toast_search_failed, Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(context, R.string.toast_search_unavailable, Toast.LENGTH_SHORT).show()
+                        onNavigate("settings")
+                    }
+                },
+                onDismiss = {
+                    webSearchOpen = false
+                    searchEntry = null
+                },
+            )
+        }
+
+        FloatingButton(
+            enabled = settings.fbuttonEnabled,
+            homeEditMode = homeEditMode,
+            appListVisible = appListVisible,
+            edgeSide = settings.edgeSide,
+            tapAction = settings.fbuttonActions[ButtonSlot.TAP] ?: ButtonAction.None,
+            resolveEntry = { key -> appsByKey[key] },
+            hapticsEnabled = settings.hapticsEnabled,
+            onTapAction = { runButtonAction(settings.fbuttonActions[ButtonSlot.TAP] ?: ButtonAction.None) },
+            onSwipeAction = { slot -> runButtonAction(settings.fbuttonActions[slot] ?: ButtonAction.None) },
+            onFocusAppSearch = { openAppListForSearch() },
+            onOpenEditSheet = { buttonSheetOpen = true },
+            modifier = Modifier.align(Alignment.BottomEnd),
+        )
     }
 }
 
@@ -815,6 +935,10 @@ data class HomeSettings(
     val sortByUsage: Boolean,
     val quickLaunchLeft: AppInfo?,
     val quickLaunchRight: AppInfo?,
+    val fbuttonEnabled: Boolean,
+    val fbuttonActions: Map<ButtonSlot, ButtonAction>,
+    /** Validated already — see SearchUrl.validate — so the search bar never has to check. */
+    val searchUrlTemplate: String,
     /** Place the favorites by measurement, until the user sets a padding of their own. */
     val centerFavorites: Boolean,
     val dimWallpaperAlpha: Float,
