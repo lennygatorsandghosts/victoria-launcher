@@ -256,7 +256,10 @@ class PrivateSpaceLauncherTest {
             waitUntilNoTexts(privateShortcutLabels + PRIVATE_APP_LABEL, CONCEAL_MS),
         )
 
-        val directShortcuts = (context.applicationContext as VictoriaApp).appRepository.appShortcuts(privateAppInfo())
+        // Asked with the state a caller would actually hold — read fresh, right now — so this
+        // exercises both halves of the gate the fix put in rather than a hand-made state.
+        val repository = (context.applicationContext as VictoriaApp).appRepository
+        val directShortcuts = repository.appShortcuts(privateAppInfo(), repository.privateSpace())
         assertTrue(
             "a direct shortcut query returned private shortcuts while the space was locked",
             directShortcuts.isEmpty(),
@@ -358,7 +361,7 @@ class PrivateSpaceLauncherTest {
         assertTrue(
             "a direct shortcut query returned private shortcuts after the lock was granted",
             (context.applicationContext as VictoriaApp).appRepository
-                .appShortcuts(privateAppInfo())
+                .let { it.appShortcuts(privateAppInfo(), it.privateSpace()) }
                 .isEmpty(),
         )
     }

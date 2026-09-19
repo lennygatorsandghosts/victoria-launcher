@@ -315,9 +315,29 @@ class AppRepository(
      * the app ranked them. Asked of the activity first, since an app with more than one
      * launcher icon ranks them per icon; a package that answers nothing that way is asked as a
      * whole rather than left looking as though it publishes none.
+     *
+     * Two gates, and a shortcut has to clear both (r3-E review, M1).
+     *
+     * [state] is the concealment the rows on screen were **published** under, and it is a
+     * required argument rather than a default so no new caller can quietly skip it. The
+     * freshly-read [listableSerial] alone is not enough: `togglePrivateSpace` is granted the
+     * lock a moment before the profile actually stops, so for that moment a fresh read still
+     * describes an open space while the list has already been told to conceal it. A row drawn
+     * from a state that conceals must not answer, however the system feels about it right now.
+     *
+     * And [listableSerial] alone is not enough the other way either: the published state can
+     * be older than a lock the system applied by itself. One predicate, both directions, and
+     * the conservative answer whenever they disagree.
      */
-    fun appShortcuts(app: AppInfo): List<ShortcutInfo> {
+    fun appShortcuts(app: AppInfo, state: PrivateSpace): List<ShortcutInfo> {
         if (app.kind != EntryKind.APP) return emptyList()
+        // The state the row was drawn under. Same predicate the list, the favorites and the
+        // folder members hide by, so a menu can never open on a row the screen is hiding.
+        if (state.conceals(app.key)) return emptyList()
+        // Asked before the query rather than left to runCatching, which is what pinnedShortcuts
+        // and listShortcutsForAction already do (r3-E review, L4). A launcher that does not
+        // hold the home role has no business asking the question at all.
+        if (!hasShortcutHostPermission()) return emptyList()
         val mainUser = Process.myUserHandle()
         val user = app.user ?: mainUser
         // The same per-profile decision the list itself is built by. The row asked about was
@@ -340,6 +360,36 @@ class AppRepository(
 
         val found = query(withActivity = true).ifEmpty { query(withActivity = false) }
         return found.filter { it.isEnabled }.sortedBy { it.rank }
+    }
+
+    /**
+     * Every package name and every app name inside the private space, as plain strings to
+     * scrub out of text that is about to leave this app (r3-E review, M2).
+     *
+     * Read fresh and read whatever the space's state is, on purpose. Android keeps answering
+     * `getActivityList` for a locked private space — that is the whole reason this launcher
+     * does its own hiding — so this works while locked, which is exactly when it is needed.
+     * And it is not conditioned on the space being locked: a crash trace written while the
+     * space was open outlives the lock, and a clipboard outlives both.
+     *
+     * Nothing to enumerate is not the same as nothing to hide, so a read that fails returns
+     * empty sets and the caller still applies the rules that need no list.
+     */
+    fun privateAppNames(): PrivateAppNames {
+        val user = privateSpace().user ?: return PrivateAppNames(emptySet(), emptySet())
+        val activities = runCatching { launcherApps.getActivityList(null, user) }
+            .getOrNull()
+            .orEmpty()
+        val packages = mutableSetOf<String>()
+        val labels = mutableSetOf<String>()
+        activities.forEach { activity ->
+            packages += activity.componentName.packageName
+            runCatching { activity.label?.toString() }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { labels += it }
+        }
+        return PrivateAppNames(packages, labels)
     }
 
     /** Starts one of [appShortcuts]; the publisher's own Intent is never touched. */

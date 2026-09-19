@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import dev.victorialauncher.VictoriaApp
 import dev.victorialauncher.data.AppInfo
+import dev.victorialauncher.data.PrivateSpace
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -39,16 +40,28 @@ private const val MAX_SHORTCUTS = 5
  * Emits nothing at all when an app publishes none, so the menu is unchanged for most of them.
  */
 @Composable
-fun AppShortcutItems(app: AppInfo, expanded: Boolean, onStarted: () -> Unit) {
+fun AppShortcutItems(
+    app: AppInfo,
+    expanded: Boolean,
+    /** The concealment the row this menu belongs to was drawn under. */
+    privateSpace: PrivateSpace,
+    onStarted: () -> Unit,
+) {
     val context = LocalContext.current
     val victoriaApp = context.applicationContext as VictoriaApp
     val density = LocalConfiguration.current.densityDpi
     var shortcuts by remember(app.key) { mutableStateOf<List<ShortcutInfo>>(emptyList()) }
 
-    LaunchedEffect(app.key, expanded) {
-        if (!expanded) return@LaunchedEffect
+    // Keyed on the state as well as on the opening, so a lock that lands while the menu is up
+    // re-runs this and empties it, instead of the one read at opening time standing until the
+    // row itself goes away (r3-E review, L1).
+    LaunchedEffect(app.key, expanded, privateSpace) {
+        if (!expanded) {
+            shortcuts = emptyList()
+            return@LaunchedEffect
+        }
         shortcuts = withContext(Dispatchers.IO) {
-            victoriaApp.appRepository.appShortcuts(app).take(MAX_SHORTCUTS)
+            victoriaApp.appRepository.appShortcuts(app, privateSpace).take(MAX_SHORTCUTS)
         }
     }
 
@@ -118,8 +131,38 @@ private const val SWIPE_THRESHOLD_PX = 90f
  * a swipe on such a row opens an empty popup rather than a stray one.
  */
 @Composable
-fun AppShortcutMenu(app: AppInfo, expanded: Boolean, offset: DpOffset, onDismiss: () -> Unit) {
-    TouchAnchoredMenu(expanded = expanded, offset = offset, onDismissRequest = onDismiss) {
-        AppShortcutItems(app, expanded) { onDismiss() }
+fun AppShortcutMenu(
+    app: AppInfo,
+    expanded: Boolean,
+    offset: DpOffset,
+    /**
+     * The concealment the list this row came from was **published** under — not a fresh read.
+     *
+     * Required, with no default, so a new swipe surface cannot be added without deciding what
+     * it is showing. Both this and the repository's own per-profile gate have to pass before a
+     * shortcut is drawn (r3-E review, M1).
+     */
+    privateSpace: PrivateSpace,
+    onDismiss: () -> Unit,
+) {
+    // A menu may not open on a row the published state hides, and an open one closes on the
+    // recomposition that publishes a lock rather than waiting for the row to be rebuilt away.
+    val allowed = !privateSpace.conceals(app.key)
+    LaunchedEffect(allowed, expanded) {
+        // Puts the caller's own "is my menu open" flag back too, so the menu does not reappear
+        // by itself when the space is unlocked again (the folder case, r3-E review, L3).
+        //
+        // Only for a menu that was actually open: a folder's members share one "which member is
+        // showing its shortcuts" key, so dismissing on behalf of a row that never opened one
+        // would close the menu belonging to a different member.
+        if (expanded && !allowed) onDismiss()
+    }
+
+    TouchAnchoredMenu(
+        expanded = expanded && allowed,
+        offset = offset,
+        onDismissRequest = onDismiss,
+    ) {
+        AppShortcutItems(app, expanded && allowed, privateSpace) { onDismiss() }
     }
 }

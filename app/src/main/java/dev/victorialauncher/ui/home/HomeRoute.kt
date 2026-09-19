@@ -640,6 +640,7 @@ fun HomeRoute(
             HomeScreen(
                 stripInsetSide = if (!stripAlwaysVisible) null else settings.edgeSide,
                 swipeForShortcuts = settings.swipeForShortcuts,
+                privateSpace = privateSpace,
                 favorites = favorites,
                 nameOverrides = nameOverrides,
                 iconSizeDp = settings.iconSizeDp,
@@ -794,6 +795,7 @@ fun HomeRoute(
         ) {
             AppListScreen(
                 model = listModel,
+                privateSpace = privateSpace,
                 nameOverrides = nameOverrides,
                 scrub = scrub,
                 iconSizeDp = settings.iconSizeDp,

@@ -40,13 +40,17 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -64,11 +68,15 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.lazy.items
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
+import android.os.Build
+import android.os.PersistableBundle
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import dev.victorialauncher.data.CrashLog
+import dev.victorialauncher.data.redactCrashTrace
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -80,6 +88,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import dev.victorialauncher.BuildConfig
+import dev.victorialauncher.VictoriaApp
 import dev.victorialauncher.data.AppFont
 import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.AzStripVisibility
@@ -200,6 +209,7 @@ fun SettingsScreen(
     val clipboard = remember(context) {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     }
+    val scope = rememberCoroutineScope()
 
     // A width in dp means nothing until you see it against the screen it is measured on, so
     // adjusting it paints the zone down the edges it would actually occupy. It fades out on
@@ -700,10 +710,23 @@ fun SettingsScreen(
                             label = stringResource(R.string.settings_crash_copy),
                             detail = stringResource(R.string.settings_crash_detail),
                             onClick = {
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Victoria crash", crash))
-                                Toast.makeText(context, R.string.settings_crash_copied, Toast.LENGTH_SHORT).show()
-                                CrashLog.clear(context)
-                                crashCleared = true
+                                // Redacted before it is copied, never after (r3-E review, M2).
+                                // The trace is framework text: it can carry a package name, a
+                                // ComponentInfo{...} or a pkg/cls|u<serial> Compose key, and it
+                                // outlives the lock, so a crash from while the space was open is
+                                // still on disk once it closes. A clipboard outlives both, and
+                                // Android 13 shows what was copied in an overlay.
+                                val repository = (context.applicationContext as VictoriaApp).appRepository
+                                scope.launch {
+                                    // Resolving the space and listing another profile's apps is
+                                    // a handful of binder calls; not on the frame the tap is on.
+                                    val names = withContext(Dispatchers.IO) { repository.privateAppNames() }
+                                    val safe = redactCrashTrace(crash, names.packages, names.labels)
+                                    clipboard.setPrimaryClip(sensitiveClip(CRASH_CLIP_LABEL, safe))
+                                    Toast.makeText(context, R.string.settings_crash_copied, Toast.LENGTH_SHORT).show()
+                                    CrashLog.clear(context)
+                                    crashCleared = true
+                                }
                             },
                         )
                     }
@@ -1534,3 +1557,23 @@ internal fun FilledChip(
         )
     }
 }
+/** What the copied crash appears as in the clipboard. */
+private const val CRASH_CLIP_LABEL = "Victoria crash"
+
+/**
+ * A clip the system is told to keep to itself.
+ *
+ * Android 13 draws a preview of whatever was copied in a corner overlay, and every keyboard
+ * keeps a clipboard history that outlives the app that wrote to it. `EXTRA_IS_SENSITIVE` turns
+ * both of those off for one clip. It arrived in API 33 and there is nothing to ask below that,
+ * which is the second reason the text itself is redacted rather than the clip merely flagged:
+ * the flag is a courtesy the platform extends, and redaction is not.
+ */
+private fun sensitiveClip(label: String, text: String): ClipData =
+    ClipData.newPlainText(label, text).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            description.extras = PersistableBundle().apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        }
+    }

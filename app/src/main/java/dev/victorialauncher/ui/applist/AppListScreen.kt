@@ -115,6 +115,7 @@ import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.ui.common.AppIcon
+import dev.victorialauncher.data.PrivateSpace
 import dev.victorialauncher.ui.common.AppShortcutMenu
 import dev.victorialauncher.ui.common.shortcutSwipe
 import dev.victorialauncher.ui.common.LocalIconConfig
@@ -220,6 +221,14 @@ fun AppListScreen(
     searchModel: AppListModel,
     /** Whether a sideways swipe on a row offers its app's shortcuts. */
     swipeForShortcuts: Boolean,
+    /**
+     * The private space as it stood when [model] was published.
+     *
+     * The model is rebuilt off the main thread, so between a lock and the rebuild finishing it
+     * still holds the space's rows. This is the state the screen actually honours: rows it
+     * conceals are filtered out below, and no swipe menu may open on one (r3-E review, M1).
+     */
+    privateSpace: PrivateSpace,
     searchEnabled: Boolean,
     forceSearchVisible: Boolean = false,
     focusSearchTick: Int = 0,
@@ -259,7 +268,7 @@ fun AppListScreen(
     val showingRecent = searchActive && searchHasFocus && query.isBlank()
     val searchRowsMode = searching || showingRecent
     val recentCaption = stringResource(R.string.applist_recently_installed)
-    val displayModel = remember(model, searchModel, query, searchActive, showingRecent, hiddenApps, recentCaption) {
+    val listedModel = remember(model, searchModel, query, searchActive, showingRecent, hiddenApps, recentCaption) {
         when {
             showingRecent -> AppListModel(
                 rows = listOf(AppListRow.Header(recentCaption, indexChar = null)) +
@@ -283,6 +292,19 @@ fun AppListScreen(
             }
         }
     }
+    // The last word on what is drawn (r3-E review, M1). `model` is built on a background
+    // dispatcher — grouping, sorting and a resource load per app — so for as long as that takes
+    // after a lock it is still the list from before it, private rows and all. Filtering here
+    // costs a pass over the rows only while something is actually concealed, and rebuilds the
+    // letter index with them, so the A-Z strip cannot point at a row that is no longer there.
+    val displayModel = remember(listedModel, privateSpace) {
+        if (privateSpace.concealedSerial == 0L) {
+            listedModel
+        } else {
+            listedModel.filtered { !privateSpace.conceals(it.key) }
+        }
+    }
+
     // Animated rather than switched, so an end does not snap from crisp to faded the moment
     // the first pixel scrolls past it.
     val topFade by animateFloatAsState(
@@ -897,6 +919,7 @@ fun AppListScreen(
                     is AppListRow.Header -> SectionHeader(row.text, labelSizeSp, contentColor, alignment)
                     is AppListRow.Entry -> AppRow(
                         swipeForShortcuts = swipeForShortcuts,
+                        privateSpace = privateSpace,
                         contentColor = contentColor,
                         alignment = alignment,
                         iconSide = iconSide,
@@ -1034,6 +1057,8 @@ private fun SectionHeader(text: String, labelSizeSp: Int, contentColor: Color, a
 @Composable
 private fun AppRow(
     swipeForShortcuts: Boolean,
+    /** The concealment this row was drawn under; its swipe menu may not outrun it. */
+    privateSpace: PrivateSpace,
     contentColor: Color,
     alignment: HomeAlignment,
     iconSide: IconSide,
@@ -1149,7 +1174,7 @@ private fun AppRow(
         // The swipe above only sets this; upstream 0.67.0 moved the shortcuts out of the
         // long-press menu below and left the app list without anything that draws them, so a
         // swipe on a row here did nothing while the same swipe on a favorite worked.
-        AppShortcutMenu(app, shortcutMenu, shortcutOffset) { shortcutMenu = false }
+        AppShortcutMenu(app, shortcutMenu, shortcutOffset, privateSpace) { shortcutMenu = false }
 
         DropdownMenu(expanded = menuExpanded, onDismissRequest = onDismissMenu, offset = menuOffset) {
             DropdownMenuItem(

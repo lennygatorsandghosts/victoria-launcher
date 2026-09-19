@@ -75,6 +75,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -106,6 +107,7 @@ import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.HomePaddings
 import dev.victorialauncher.data.folderToken
 import dev.victorialauncher.data.PaddingSlot
+import dev.victorialauncher.data.PrivateSpace
 import dev.victorialauncher.media.NowPlayingWidget
 import dev.victorialauncher.media.openNowPlayingApp
 import dev.victorialauncher.service.HapticUtil
@@ -126,9 +128,27 @@ import dev.victorialauncher.R
 import androidx.compose.ui.res.stringResource
 
 private sealed interface HomeItem {
-    data object Widget : HomeItem
-    data class Favorite(val app: AppInfo) : HomeItem
-    data class FolderItem(val folder: Folder) : HomeItem
+    /**
+     * What this row is, rather than where it sits (r3-E review, L2).
+     *
+     * The favorites are composed by position, so when the private one at index i drops out on
+     * a lock, the row at i rebinds to whatever moved up while any menu state remembered by
+     * that row stays as it was — leaving an open shortcut menu pointing at somebody else's
+     * app. Keyed by this instead, the row that went takes its own state with it.
+     */
+    val stableKey: String
+
+    data object Widget : HomeItem {
+        override val stableKey: String get() = "widget"
+    }
+
+    data class Favorite(val app: AppInfo) : HomeItem {
+        override val stableKey: String get() = app.key
+    }
+
+    data class FolderItem(val folder: Folder) : HomeItem {
+        override val stableKey: String get() = folderToken(folder.id)
+    }
 }
 
 /** A favorites row is either an app or a folder; both reorder through the same list. */
@@ -168,6 +188,12 @@ fun HomeScreen(
     stripInsetSide: EdgeSide?,
     /** Whether a sideways swipe on a row offers its app's shortcuts. */
     swipeForShortcuts: Boolean,
+    /**
+     * The private space as it stood when [favorites] was published. Favorites and folder
+     * members are derived from the same read, so they already leave the screen with a lock —
+     * this is what stops a swipe menu on one of them outliving it (r3-E review, M1).
+     */
+    privateSpace: PrivateSpace,
     favorites: List<FavoriteEntry>,
     nameOverrides: Map<String, String>,
     iconSizeDp: Int,
@@ -646,218 +672,225 @@ fun HomeScreen(
             }
 
             displayItems.forEachIndexed { index, item ->
-                // Reordering hangs off a visible grab handle now. It used to be a long press
-                // anywhere on the row, which nothing on screen advertised and which fought
-                // every other thing a long press could mean.
-                val dragHandle = if (editMode) {
-                    Modifier.pointerInput(index, displayItems.size) {
-                        detectDragGestures(
-                            onDragStart = {
-                                // The handle is small and the row does not move until the
-                                // finger does, so a tick is the only confirmation that the
-                                // grab took.
-                                HapticUtil.tick(view, hapticsEnabled)
-                                dragOrder = displayItems
-                                draggingIndex = index
-                                dragOffset = 0f
-                            },
-                            onDragEnd = { commitDragOrder() },
-                            onDragCancel = { commitDragOrder() },
-                        ) { change, amount ->
-                            change.consume()
-                            onDragBy(amount.y)
+                // Keyed by what the row IS, not by where it sits (r3-E review, L2). Without
+                // this, a favorite dropping out on a lock leaves the row at its index bound to
+                // the next app while that row's remembered menu state stays open.
+                key(item.stableKey) {
+                    // Reordering hangs off a visible grab handle now. It used to be a long press
+                    // anywhere on the row, which nothing on screen advertised and which fought
+                    // every other thing a long press could mean.
+                    val dragHandle = if (editMode) {
+                        Modifier.pointerInput(index, displayItems.size) {
+                            detectDragGestures(
+                                onDragStart = {
+                                    // The handle is small and the row does not move until the
+                                    // finger does, so a tick is the only confirmation that the
+                                    // grab took.
+                                    HapticUtil.tick(view, hapticsEnabled)
+                                    dragOrder = displayItems
+                                    draggingIndex = index
+                                    dragOffset = 0f
+                                },
+                                onDragEnd = { commitDragOrder() },
+                                onDragCancel = { commitDragOrder() },
+                            ) { change, amount ->
+                                change.consume()
+                                onDragBy(amount.y)
+                            }
                         }
+                    } else {
+                        null
                     }
-                } else {
-                    null
-                }
 
-                // Spacing handles live outside the draggable wrapper: inside it they would
-                // travel with a dragged row and skew the height the swap threshold uses.
-                if (item is HomeItem.Widget) {
-                    PaddingHandle(
-                        editMode = editMode,
-                        label = R.string.handle_widget_top,
-                        value = padOf(PaddingSlot.WIDGET_TOP),
-                        onChange = { setPadding(PaddingSlot.WIDGET_TOP, it) },
-                        contentColor = contentColor,
-                    )
-                } else if (index == firstRowIndex) {
-                    PaddingHandle(
-                        editMode = editMode,
-                        label = R.string.handle_favorites_top,
-                        value = padOf(PaddingSlot.FAVORITES_TOP),
-                        onChange = { setPadding(PaddingSlot.FAVORITES_TOP, it) },
-                        contentColor = contentColor,
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onGloballyPositioned { coords ->
-                            itemHeights[index] = coords.size.height
-                            itemTops[index] = coords.positionInWindow().y
-                            refreshFavBounds()
-                        }
-                        .zIndex(if (draggingIndex == index) 1f else 0f)
-                        .graphicsLayer {
-                            if (draggingIndex == index) {
-                                translationY = dragOffset
-                                scaleX = 1.03f
-                                scaleY = 1.03f
-                                alpha = 0.9f
-                            }
-                        }
-                ) {
-                    when (item) {
-                        HomeItem.Widget -> Box {
-                            // A widget lays out its own contents and most clocks center
-                            // theirs, which nothing out here can reach inside. Narrowing the
-                            // slot and putting it against a side moves what it draws with it.
-                            WidgetSlot(
-                                widgetIds = widgetIds,
-                                heightDp = widgetHeightDp,
-                                onEditLayout = { onEditModeChange(true) },
-                                actions = widgetActions,
-                                modifier = Modifier
-                                    .offset(x = widgetOffsetXDp.dp)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = widgetSidePaddingDp.dp),
-                            )
-                            // The widget is a row in the order like any other, so it needs a
-                            // handle of its own to be moved among them.
-                            if (dragHandle != null) {
-                                DragHandle(
-                                    contentColor = contentColor,
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(end = EDIT_CONTROL_END_INSET)
-                                        .then(dragHandle),
-                                )
-                            }
-                        }
-
-                        is HomeItem.FolderItem -> FolderRow(
-                            swipeForShortcuts = swipeForShortcuts,
-                            folder = item.folder,
-                            members = item.folder.apps.mapNotNull { appsByKey[it] },
-                            expanded = item.folder.id in expandedFolders,
+                    // Spacing handles live outside the draggable wrapper: inside it they would
+                    // travel with a dragged row and skew the height the swap threshold uses.
+                    if (item is HomeItem.Widget) {
+                        PaddingHandle(
                             editMode = editMode,
-                            dragHandle = dragHandle,
-                            iconSizeDp = iconSizeDp,
-                            labelSizeSp = labelSizeSp,
-                            sidePaddingDp = sidePaddingDp,
+                            label = R.string.handle_widget_top,
+                            value = padOf(PaddingSlot.WIDGET_TOP),
+                            onChange = { setPadding(PaddingSlot.WIDGET_TOP, it) },
                             contentColor = contentColor,
-                            showLabels = showFavoriteLabels,
-                            alignment = alignment,
-                            iconSide = iconSide,
-                            menuExpanded = folderMenuFor == item.folder.id,
-                            menuOffset = menuOffset,
-                            touchPosition = touchPosition,
-                            displayName = { displayName(it) },
-                            onToggleExpanded = {
-                                expandedFolders = if (item.folder.id in expandedFolders) {
-                                    expandedFolders - item.folder.id
-                                } else {
-                                    expandedFolders + item.folder.id
+                        )
+                    } else if (index == firstRowIndex) {
+                        PaddingHandle(
+                            editMode = editMode,
+                            label = R.string.handle_favorites_top,
+                            value = padOf(PaddingSlot.FAVORITES_TOP),
+                            onChange = { setPadding(PaddingSlot.FAVORITES_TOP, it) },
+                            contentColor = contentColor,
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onGloballyPositioned { coords ->
+                                itemHeights[index] = coords.size.height
+                                itemTops[index] = coords.positionInWindow().y
+                                refreshFavBounds()
+                            }
+                            .zIndex(if (draggingIndex == index) 1f else 0f)
+                            .graphicsLayer {
+                                if (draggingIndex == index) {
+                                    translationY = dragOffset
+                                    scaleX = 1.03f
+                                    scaleY = 1.03f
+                                    alpha = 0.9f
                                 }
-                            },
-                            onOpenMenu = { offset -> menuOffset = offset; folderMenuFor = item.folder.id },
-                            onDismissMenu = { folderMenuFor = null },
-                            onManage = { folderMenuFor = null; onManageFolder(item.folder) },
-                            onEdit = { folderMenuFor = null; folderRenameFor = item.folder },
-                            onEditLayout = { folderMenuFor = null; onEditModeChange(true) },
-                            onDelete = { folderMenuFor = null; onDeleteFolder(item.folder) },
-                            onOpenApp = onOpenFolderApp,
-                            onRemoveApp = { member -> onRemoveFromFolder(item.folder, member) },
-                            onMemberAppInfo = onAppInfo,
-                            onMemberUnpin = onUnpinShortcut,
-                            onMemberEditIconName = { member -> renameDialogFor = member },
-                            onOpenSettings = onOpenSettings,
-                        )
+                            }
+                    ) {
+                        when (item) {
+                            HomeItem.Widget -> Box {
+                                // A widget lays out its own contents and most clocks center
+                                // theirs, which nothing out here can reach inside. Narrowing the
+                                // slot and putting it against a side moves what it draws with it.
+                                WidgetSlot(
+                                    widgetIds = widgetIds,
+                                    heightDp = widgetHeightDp,
+                                    onEditLayout = { onEditModeChange(true) },
+                                    actions = widgetActions,
+                                    modifier = Modifier
+                                        .offset(x = widgetOffsetXDp.dp)
+                                        .fillMaxWidth()
+                                        .padding(horizontal = widgetSidePaddingDp.dp),
+                                )
+                                // The widget is a row in the order like any other, so it needs a
+                                // handle of its own to be moved among them.
+                                if (dragHandle != null) {
+                                    DragHandle(
+                                        contentColor = contentColor,
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(end = EDIT_CONTROL_END_INSET)
+                                            .then(dragHandle),
+                                    )
+                                }
+                            }
 
-                        is HomeItem.Favorite -> FavoriteRow(
-                            swipeForShortcuts = swipeForShortcuts,
-                            app = item.app,
-                            label = displayName(item.app),
-                            editMode = editMode,
-                            dragHandle = dragHandle,
-                            iconSizeDp = iconSizeDp,
-                            labelSizeSp = labelSizeSp,
-                            sidePaddingDp = sidePaddingDp,
-                            contentColor = contentColor,
-                            showLabels = showFavoriteLabels,
-                            alignment = alignment,
-                            iconSide = iconSide,
-                            menuExpanded = menuForKey == item.app.key,
-                            menuOffset = menuOffset,
-                            touchPosition = touchPosition,
-                            onLaunch = { onLaunch(item.app) },
-                            onOpenMenu = { offset -> menuOffset = offset; menuForKey = item.app.key },
-                            onDismissMenu = { menuForKey = null },
-                            onMoveToFolder = { menuForKey = null; onMoveToFolder(item.app) },
-                            onEditLayout = { menuForKey = null; onEditModeChange(true) },
-                            onAppInfo = { menuForKey = null; onAppInfo(item.app) },
-                            onUnpin = { menuForKey = null; onUnpinShortcut(item.app) },
-                            onRemove = { menuForKey = null; onRemoveFavorite(item.app) },
-                            onEditIconName = { menuForKey = null; renameDialogFor = item.app },
-                            onOpenSettings = { menuForKey = null; onOpenSettings() },
-                        )
-                    }
-                }
+                            is HomeItem.FolderItem -> FolderRow(
+                                swipeForShortcuts = swipeForShortcuts,
+                                privateSpace = privateSpace,
+                                folder = item.folder,
+                                members = item.folder.apps.mapNotNull { appsByKey[it] },
+                                expanded = item.folder.id in expandedFolders,
+                                editMode = editMode,
+                                dragHandle = dragHandle,
+                                iconSizeDp = iconSizeDp,
+                                labelSizeSp = labelSizeSp,
+                                sidePaddingDp = sidePaddingDp,
+                                contentColor = contentColor,
+                                showLabels = showFavoriteLabels,
+                                alignment = alignment,
+                                iconSide = iconSide,
+                                menuExpanded = folderMenuFor == item.folder.id,
+                                menuOffset = menuOffset,
+                                touchPosition = touchPosition,
+                                displayName = { displayName(it) },
+                                onToggleExpanded = {
+                                    expandedFolders = if (item.folder.id in expandedFolders) {
+                                        expandedFolders - item.folder.id
+                                    } else {
+                                        expandedFolders + item.folder.id
+                                    }
+                                },
+                                onOpenMenu = { offset -> menuOffset = offset; folderMenuFor = item.folder.id },
+                                onDismissMenu = { folderMenuFor = null },
+                                onManage = { folderMenuFor = null; onManageFolder(item.folder) },
+                                onEdit = { folderMenuFor = null; folderRenameFor = item.folder },
+                                onEditLayout = { folderMenuFor = null; onEditModeChange(true) },
+                                onDelete = { folderMenuFor = null; onDeleteFolder(item.folder) },
+                                onOpenApp = onOpenFolderApp,
+                                onRemoveApp = { member -> onRemoveFromFolder(item.folder, member) },
+                                onMemberAppInfo = onAppInfo,
+                                onMemberUnpin = onUnpinShortcut,
+                                onMemberEditIconName = { member -> renameDialogFor = member },
+                                onOpenSettings = onOpenSettings,
+                            )
 
-                if (item is HomeItem.Widget) {
-                    if (editMode) {
-                        Spacer(Modifier.height(6.dp))
-                        StepperRow(
-                            label = stringResource(R.string.handle_widget_height),
-                            value = widgetHeightDp,
-                            range = 80..900,
-                            step = HEIGHT_STEP_DP,
-                            onChange = { widgetActions.onResize(it) },
-                            contentColor = contentColor,
-                        )
+                            is HomeItem.Favorite -> FavoriteRow(
+                                swipeForShortcuts = swipeForShortcuts,
+                                privateSpace = privateSpace,
+                                app = item.app,
+                                label = displayName(item.app),
+                                editMode = editMode,
+                                dragHandle = dragHandle,
+                                iconSizeDp = iconSizeDp,
+                                labelSizeSp = labelSizeSp,
+                                sidePaddingDp = sidePaddingDp,
+                                contentColor = contentColor,
+                                showLabels = showFavoriteLabels,
+                                alignment = alignment,
+                                iconSide = iconSide,
+                                menuExpanded = menuForKey == item.app.key,
+                                menuOffset = menuOffset,
+                                touchPosition = touchPosition,
+                                onLaunch = { onLaunch(item.app) },
+                                onOpenMenu = { offset -> menuOffset = offset; menuForKey = item.app.key },
+                                onDismissMenu = { menuForKey = null },
+                                onMoveToFolder = { menuForKey = null; onMoveToFolder(item.app) },
+                                onEditLayout = { menuForKey = null; onEditModeChange(true) },
+                                onAppInfo = { menuForKey = null; onAppInfo(item.app) },
+                                onUnpin = { menuForKey = null; onUnpinShortcut(item.app) },
+                                onRemove = { menuForKey = null; onRemoveFavorite(item.app) },
+                                onEditIconName = { menuForKey = null; renameDialogFor = item.app },
+                                onOpenSettings = { menuForKey = null; onOpenSettings() },
+                            )
+                        }
                     }
-                    PaddingHandle(
-                        editMode = editMode,
-                        label = R.string.handle_widget_bottom,
-                        value = padOf(PaddingSlot.WIDGET_BOTTOM),
-                        onChange = { setPadding(PaddingSlot.WIDGET_BOTTOM, it) },
-                        contentColor = contentColor,
-                    )
-                    // Now Playing sits between the widget and the favorites.
-                    if (nowPlayingHasContent) {
-                        NowPlayingBlock(
+
+                    if (item is HomeItem.Widget) {
+                        if (editMode) {
+                            Spacer(Modifier.height(6.dp))
+                            StepperRow(
+                                label = stringResource(R.string.handle_widget_height),
+                                value = widgetHeightDp,
+                                range = 80..900,
+                                step = HEIGHT_STEP_DP,
+                                onChange = { widgetActions.onResize(it) },
+                                contentColor = contentColor,
+                            )
+                        }
+                        PaddingHandle(
                             editMode = editMode,
-                            heightDp = nowPlayingHeightDp,
+                            label = R.string.handle_widget_bottom,
+                            value = padOf(PaddingSlot.WIDGET_BOTTOM),
+                            onChange = { setPadding(PaddingSlot.WIDGET_BOTTOM, it) },
                             contentColor = contentColor,
-                            alignment = alignment,
-                            iconSide = iconSide,
-                            sidePaddingDp = sidePaddingDp,
-                            padTop = padOf(PaddingSlot.NOW_PLAYING_TOP),
-                            padBottom = padOf(PaddingSlot.NOW_PLAYING_BOTTOM),
-                            touchPosition = touchPosition,
-                            menuExpanded = nowPlayingMenu,
-                            menuOffset = nowPlayingMenuOffset,
-                            onOpenMenu = { offset -> nowPlayingMenuOffset = offset; nowPlayingMenu = true },
-                            onDismissMenu = { nowPlayingMenu = false },
-                            onEditLayout = { nowPlayingMenu = false; onEditModeChange(true) },
-                            onOpenSettings = { nowPlayingMenu = false; onOpenSettings() },
-                            onResize = onResizeNowPlaying,
-                            onSetPadding = { slot, v -> setPadding(slot, v) },
                         )
+                        // Now Playing sits between the widget and the favorites.
+                        if (nowPlayingHasContent) {
+                            NowPlayingBlock(
+                                editMode = editMode,
+                                heightDp = nowPlayingHeightDp,
+                                contentColor = contentColor,
+                                alignment = alignment,
+                                iconSide = iconSide,
+                                sidePaddingDp = sidePaddingDp,
+                                padTop = padOf(PaddingSlot.NOW_PLAYING_TOP),
+                                padBottom = padOf(PaddingSlot.NOW_PLAYING_BOTTOM),
+                                touchPosition = touchPosition,
+                                menuExpanded = nowPlayingMenu,
+                                menuOffset = nowPlayingMenuOffset,
+                                onOpenMenu = { offset -> nowPlayingMenuOffset = offset; nowPlayingMenu = true },
+                                onDismissMenu = { nowPlayingMenu = false },
+                                onEditLayout = { nowPlayingMenu = false; onEditModeChange(true) },
+                                onOpenSettings = { nowPlayingMenu = false; onOpenSettings() },
+                                onResize = onResizeNowPlaying,
+                                onSetPadding = { slot, v -> setPadding(slot, v) },
+                            )
+                        }
+                    } else if (index == lastRowIndex) {
+                        PaddingHandle(
+                            editMode = editMode,
+                            label = R.string.handle_favorites_bottom,
+                            value = padOf(PaddingSlot.FAVORITES_BOTTOM),
+                            onChange = { setPadding(PaddingSlot.FAVORITES_BOTTOM, it) },
+                            contentColor = contentColor,
+                        )
+                    } else {
+                        Spacer(Modifier.height(itemSpacingDp.dp))
                     }
-                } else if (index == lastRowIndex) {
-                    PaddingHandle(
-                        editMode = editMode,
-                        label = R.string.handle_favorites_bottom,
-                        value = padOf(PaddingSlot.FAVORITES_BOTTOM),
-                        onChange = { setPadding(PaddingSlot.FAVORITES_BOTTOM, it) },
-                        contentColor = contentColor,
-                    )
-                } else {
-                    Spacer(Modifier.height(itemSpacingDp.dp))
                 }
             }
         }
@@ -926,6 +959,8 @@ fun HomeScreen(
 @Composable
 private fun FavoriteRow(
     swipeForShortcuts: Boolean,
+    /** The concealment this row was drawn under; its swipe menu may not outrun it. */
+    privateSpace: PrivateSpace,
     app: AppInfo,
     label: String,
     editMode: Boolean,
@@ -1027,7 +1062,7 @@ private fun FavoriteRow(
             )
         }
 
-        AppShortcutMenu(app, shortcutMenu, shortcutOffset) { shortcutMenu = false }
+        AppShortcutMenu(app, shortcutMenu, shortcutOffset, privateSpace) { shortcutMenu = false }
 
         TouchAnchoredMenu(expanded = menuExpanded, offset = menuOffset, onDismissRequest = onDismissMenu) {
             DropdownMenuItem(
@@ -1083,6 +1118,8 @@ private fun FavoriteRow(
 @Composable
 private fun FolderRow(
     swipeForShortcuts: Boolean,
+    /** The concealment these members were drawn under; their swipe menus may not outrun it. */
+    privateSpace: PrivateSpace,
     folder: Folder,
     members: List<AppInfo>,
     expanded: Boolean,
@@ -1123,6 +1160,15 @@ private fun FolderRow(
     val memberTouch = remember { mutableStateOf(Offset.Zero) }
     var memberShortcutFor by remember { mutableStateOf<String?>(null) }
     var memberShortcutOffset by remember { mutableStateOf(DpOffset.Zero) }
+
+    // A member that leaves takes any menu opened on it with it (r3-E review, L3). Unlike the
+    // favorites above, folder members are not separate composables, so the key that says which
+    // one is showing its shortcuts simply outlived the member: safe while the space was locked
+    // — the menu draws nothing — but the menu then opened by itself when it was unlocked again.
+    LaunchedEffect(members) {
+        if (members.none { it.key == memberShortcutFor }) memberShortcutFor = null
+        if (members.none { it.key == memberMenuFor }) memberMenuFor = null
+    }
 
     Column {
         Box {
@@ -1283,6 +1329,7 @@ private fun FolderRow(
                         member,
                         memberShortcutFor == member.key,
                         memberShortcutOffset,
+                        privateSpace,
                     ) { memberShortcutFor = null }
 
                     TouchAnchoredMenu(
