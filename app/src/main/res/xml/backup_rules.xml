@@ -7,7 +7,12 @@
   what the export refuses to: the component names of apps inside the private space, their
   renames, their icon overrides, whether they were hidden, and how many times each was opened.
   So it is excluded, and with nothing else to exclude that leaves this a short list.
+
+  last_crash.txt (CrashLog, from upstream 0.65.0) is excluded for the same reason: a stack trace
+  can carry another app's package or component name in an exception message, and that app can
+  be one inside the private space.
 -->
 <full-backup-content>
     <exclude domain="file" path="datastore" />
+    <exclude domain="file" path="last_crash.txt" />
 </full-backup-content>
