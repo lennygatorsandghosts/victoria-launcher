@@ -407,6 +407,7 @@ fun VictoriaNavHost(
     val allowRotation = allowRotationPref ?: rotatesByDefault
     val iconShape by app.prefs.iconShape.collectAsState(initial = IconShape.SYSTEM)
     val themedIcons by app.prefs.themedIcons.collectAsState(initial = false)
+    val shortcutBadges by app.prefs.shortcutAppBadge.collectAsState(initial = true)
     val alignment by app.prefs.alignment.collectAsState(initial = HomeAlignment.LEFT)
     val appListAlignment by app.prefs.appListAlignment.collectAsState(initial = HomeAlignment.LEFT)
     val iconSide by app.prefs.iconSide.collectAsState(initial = IconSide.LEFT)
@@ -504,8 +505,17 @@ fun VictoriaNavHost(
             foreground = scheme.onPrimaryContainer.toArgb(),
         )
     }
-    LaunchedEffect(allApps, iconPackPackage, iconOverrides, listIconPx, priorityKeys, iconStyle) {
-        warmIconCache(context, allApps, iconPackPackage, iconOverrides, listIconPx, iconStyle, priorityKeys)
+    LaunchedEffect(allApps, iconPackPackage, iconOverrides, listIconPx, priorityKeys, iconStyle, iconCfg.shortcutBadges) {
+        warmIconCache(
+            context,
+            allApps,
+            iconPackPackage,
+            iconOverrides,
+            listIconPx,
+            iconStyle,
+            priorityKeys,
+            badges = iconCfg.shortcutBadges,
+        )
     }
 
     // Written through the document picker rather than to a path of our own: the file is the
@@ -746,6 +756,7 @@ fun VictoriaNavHost(
                 iconPacks = iconPacks,
                 iconPackPackage = iconPackPackage,
                 showAppIcons = showAppIcons,
+                shortcutBadges = shortcutBadges,
                 // The Settings app rather than whatever happens to sort first: a stable,
                 // recognizable icon to judge a size against on every device.
                 previewApp = remember(allApps) {
@@ -799,6 +810,7 @@ fun VictoriaNavHost(
                 onSetSearchLabel = { scope.launch { app.prefs.setSearchLabel(it) } },
                 onSetIconPack = { scope.launch { app.prefs.setIconPackPackage(it) } },
                 onSetShowAppIcons = { scope.launch { app.prefs.setShowAppIcons(it) } },
+                onSetShortcutBadges = { scope.launch { app.prefs.setShortcutAppBadge(it) } },
                 onSetIconSize = { scope.launch { app.prefs.setIconSizeDp(it) } },
                 onSetLabelSize = { scope.launch { app.prefs.setLabelSizeSp(it) } },
                 onSetItemSpacing = { scope.launch { app.prefs.setItemSpacingDp(it) } },

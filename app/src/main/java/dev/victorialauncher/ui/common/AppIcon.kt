@@ -2,6 +2,13 @@
 package dev.victorialauncher.ui.common
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.LruCache
@@ -15,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -23,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import dev.victorialauncher.VictoriaApp
 import dev.victorialauncher.data.AppInfo
+import dev.victorialauncher.data.AppRepository
 import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.IconShape
 import kotlinx.coroutines.async
@@ -70,7 +79,10 @@ private object IconCache {
     fun clear() = cache.evictAll()
 }
 
-fun clearIconCache() = IconCache.clear()
+fun clearIconCache() {
+    IconCache.clear()
+    AppRepository.clearPublisherMemo()
+}
 
 // The class name is in here for the rows whose key alone cannot tell two pictures apart: the
 // private-space row keeps one key across locking and unlocking, and the padlock it draws is
@@ -81,7 +93,8 @@ private fun iconCacheKey(
     override: String?,
     px: Int,
     style: IconStyle,
-) = "${app.key}|${app.componentName.className}|$iconPack|$override|$px|${style.shape}|${style.themed}|${style.background}"
+    badgeSuffix: String = "",
+) = "${app.key}|${app.componentName.className}|$iconPack|$override|$px|${style.shape}|${style.themed}|${style.background}$badgeSuffix"
 
 /** Everything about how an icon is drawn that is not the icon itself. */
 @Immutable
@@ -109,21 +122,13 @@ suspend fun warmIconCache(
     px: Int,
     style: IconStyle,
     priorityKeys: Set<String> = emptySet(),
+    badges: Boolean = true,
 ) {
     if (px <= 0 || apps.isEmpty()) return
     val victoriaApp = context.applicationContext as VictoriaApp
 
     fun warm(app: AppInfo) {
-        val override = overrides[app.key]
-        val styled = override == null && iconPack == null
-        val own = if (styled) style else style.copy(shape = IconShape.SYSTEM, themed = false)
-        val key = iconCacheKey(app, iconPack, override, px, own)
-        if (IconCache.get(key) != null) return
-        runCatching {
-            val drawable = resolveDrawable(context, victoriaApp, app, iconPack, override)
-            val bitmap = renderIcon(drawable, px, own.shape, own.themed, own.background, own.foreground)
-            IconCache.put(key, bitmap.asImageBitmap())
-        }
+        rasterise(context, victoriaApp, app, iconPack, overrides, px, style, badges)
     }
 
     val (first, rest) = apps.partition { it.key in priorityKeys }
@@ -157,10 +162,18 @@ data class IconConfig(
     /** Draw the monochrome layer, tinted, instead of the app's own colors. */
     val themed: Boolean,
     val shape: IconShape,
+    val shortcutBadges: Boolean = true,
 )
 
 val LocalIconConfig = staticCompositionLocalOf {
-    IconConfig(pack = null, overrides = emptyMap(), showIcons = true, themed = false, shape = IconShape.SYSTEM)
+    IconConfig(
+        pack = null,
+        overrides = emptyMap(),
+        showIcons = true,
+        themed = false,
+        shape = IconShape.SYSTEM,
+        shortcutBadges = true,
+    )
 }
 
 @Composable
@@ -186,14 +199,17 @@ fun AppIcon(app: AppInfo, sizeDp: Int, modifier: Modifier = Modifier) {
         foreground = scheme.onPrimaryContainer.toArgb(),
     )
 
-    val cacheKey = iconCacheKey(app, iconPackPackage, overrideValue, px, style)
+    val overridesStamp = remember(config.overrides) { config.overrides.hashCode() }
+    val cacheKey = iconCacheKey(
+        app,
+        iconPackPackage,
+        overrideValue,
+        px,
+        style,
+        badgeKeySuffix(app.kind == EntryKind.SHORTCUT, config.shortcutBadges, overridesStamp),
+    )
     val bitmap: ImageBitmap? = remember(cacheKey) {
-        IconCache.get(cacheKey) ?: runCatching {
-            val drawable = resolveDrawable(context, victoriaApp, app, iconPackPackage, overrideValue)
-            renderIcon(drawable, px, style.shape, style.themed, style.background, style.foreground)
-                .asImageBitmap()
-                .also { IconCache.put(cacheKey, it) }
-        }.getOrNull()
+        rasterise(context, victoriaApp, app, iconPackPackage, config.overrides, px, style, config.shortcutBadges)
     }
 
     if (bitmap != null) {
@@ -201,6 +217,100 @@ fun AppIcon(app: AppInfo, sizeDp: Int, modifier: Modifier = Modifier) {
     } else {
         Box(modifier = modifier.size(sizeDp.dp))
     }
+}
+
+internal fun rasterise(
+    context: Context,
+    victoriaApp: VictoriaApp,
+    app: AppInfo,
+    iconPackPackage: String?,
+    overrides: Map<String, String>,
+    px: Int,
+    base: IconStyle,
+    badges: Boolean,
+): ImageBitmap? {
+    if (px <= 0) return null
+    val overrideValue = overrides[app.key]
+    val styled = overrideValue == null && iconPackPackage == null
+    val style = if (styled) base else base.copy(shape = IconShape.SYSTEM, themed = false)
+    val isShortcut = app.kind == EntryKind.SHORTCUT
+    val cacheKey = iconCacheKey(
+        app,
+        iconPackPackage,
+        overrideValue,
+        px,
+        style,
+        badgeKeySuffix(isShortcut, badges, overrides.hashCode()),
+    )
+    IconCache.get(cacheKey)?.let { return it }
+
+    return runCatching {
+        val publisher = if (badges && isShortcut) victoriaApp.appRepository.publisherApp(app) else null
+        val shortcutOwn = if (badges && isShortcut && overrideValue == null && publisher != null) {
+            victoriaApp.appRepository.shortcutOwnIcon(app, profileBadge = false)
+        } else {
+            null
+        }
+        val hasOwnIcon = overrideValue != null || shortcutOwn != null
+        val drawable = decodeIconOverride(context, victoriaApp, overrideValue)
+            ?: shortcutOwn
+            ?: resolveDrawable(context, victoriaApp, app, iconPackPackage, overrideValue)
+        val rendered = renderIcon(drawable, px, style.shape, style.themed, style.background, style.foreground)
+        val geometry = badgeGeometry(px)
+        val finalBitmap = if (
+            badgePlan(isShortcut, badges, publisher != null, hasOwnIcon) == BadgePlan.BADGE &&
+            publisher != null &&
+            geometry != null
+        ) {
+            val parent = rasterise(
+                context,
+                victoriaApp,
+                publisher,
+                iconPackPackage,
+                overrides,
+                px,
+                base,
+                badges = false,
+            )?.asAndroidBitmap()
+            if (parent == null) rendered else compositeBadge(rendered, parent, geometry)
+        } else {
+            rendered
+        }
+        finalBitmap.asImageBitmap().also { IconCache.put(cacheKey, it) }
+    }.getOrNull()
+}
+
+private fun compositeBadge(base: Bitmap, badge: Bitmap, geometry: BadgeGeometry): Bitmap {
+    val out = base.copy(Bitmap.Config.ARGB_8888, true) ?: base
+    val canvas = Canvas(out)
+    val source: Rect? = null
+    val flags = Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG
+    val cutPaint = Paint(flags).apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+    }
+    canvas.drawBitmap(
+        badge,
+        source,
+        RectF(
+            geometry.haloLeft.toFloat(),
+            geometry.haloTop.toFloat(),
+            (geometry.haloLeft + geometry.haloSize).toFloat(),
+            (geometry.haloTop + geometry.haloSize).toFloat(),
+        ),
+        cutPaint,
+    )
+    canvas.drawBitmap(
+        badge,
+        source,
+        RectF(
+            geometry.left.toFloat(),
+            geometry.top.toFloat(),
+            (geometry.left + geometry.size).toFloat(),
+            (geometry.top + geometry.size).toFloat(),
+        ),
+        Paint(flags),
+    )
+    return out
 }
 
 /**
