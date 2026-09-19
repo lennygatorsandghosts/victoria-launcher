@@ -59,7 +59,13 @@ object LauncherTestUtils {
     }
 
     /** Bounded retries for [openAppList]; see the comment there for why a single attempt isn't reliable. */
-    private const val OPEN_LIST_ATTEMPTS = 5
+    private fun UiDevice.displayMetrics() =
+        InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics
+
+    private const val OPEN_LIST_ATTEMPTS = 3
+
+    /** Heights to try, most likely first: the strip the launcher exempts follows the favorites. */
+    private val OPEN_LIST_HEIGHTS = listOf(0.6f, 0.78f, 0.45f, 0.88f, 0.3f)
 
     /**
      * Opens the full A-Z app list the way a person would: touch down inside the invisible
@@ -90,16 +96,22 @@ object LauncherTestUtils {
         runBlocking { Prefs(context).setAppListSearchEnabled(true) }
 
         val device = uiDevice()
-        val startX = device.displayWidth - 2
+        // Not from the last pixel: the launcher can exempt only a limited band of the edge
+        // from the system's back gesture, and that band follows the favorites. Outside it a
+        // swipe from the very edge is a system Back, which closes the list it just opened.
+        // 40dp in is past the back-gesture inset and still inside the 56dp default edge zone.
+        val startX = device.displayWidth - (40 * device.displayMetrics().density).toInt()
         val endX = (device.displayWidth * 0.6f).toInt()
-        val y = (device.displayHeight * 0.6f).toInt()
-        repeat(OPEN_LIST_ATTEMPTS) {
-            device.swipe(startX, y, endX, y, 60)
-            if (device.wait(Until.hasObject(By.text("Search apps")), 1_000L)) return
+        for (fraction in OPEN_LIST_HEIGHTS) {
+            val y = (device.displayHeight * fraction).toInt()
+            repeat(OPEN_LIST_ATTEMPTS) {
+                device.swipe(startX, y, endX, y, 60)
+                if (device.wait(Until.hasObject(By.text("Search apps")), 1_000L)) return
+            }
         }
         // Said here, where it happened, rather than left for whatever looks for a row next
         // to report as a row that is missing.
-        error("the app list did not open after $OPEN_LIST_ATTEMPTS swipes")
+        error("the app list did not open after ${OPEN_LIST_ATTEMPTS * OPEN_LIST_HEIGHTS.size} swipes")
     }
 
     /**
