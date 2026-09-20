@@ -72,7 +72,7 @@ private fun resizeFromEdge(
 /** Shared controls for a hosted widget and the Now Playing card. */
 @Composable
 fun BoxScope.ResizeOverlay(
-    value: ResizePreview,
+    value: () -> ResizePreview,
     range: IntRange,
     safeTop: Float,
     safeBottom: Float,
@@ -97,7 +97,7 @@ fun BoxScope.ResizeOverlay(
             modifier = Modifier.align(if (top) Alignment.TopCenter else Alignment.BottomCenter)
                 .size(width = 64.dp, height = (range.first / 2).dp),
             onStart = {
-                val initial = value
+                val initial = value()
                 val initialBounds = bounds
                 onDragging(true)
                 // Immutable baseline for the entire gesture, including its first movement.
@@ -113,7 +113,7 @@ fun BoxScope.ResizeOverlay(
             onStep = { increase ->
                 onDragging(true)
                 val delta = density * (if (increase) 1 else -1) * (if (top) -1 else 1)
-                val next = resizeFromEdge(value, bounds, top, delta, density, range, safeTop, safeBottom)
+                val next = resizeFromEdge(value(), bounds, top, delta, density, range, safeTop, safeBottom)
                 onPreview(next)
                 onCommit(next)
                 onDragging(false)

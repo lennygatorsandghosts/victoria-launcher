@@ -111,6 +111,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.victorialauncher.ui.common.layoutHeight
 import dev.victorialauncher.data.AppInfo
 import dev.victorialauncher.data.EdgeSide
 import dev.victorialauncher.data.ShortcutSwipe
@@ -308,7 +309,6 @@ fun HomeScreen(
     var contentHeight by remember { mutableIntStateOf(0) }
     val resizeLayoutIdentity = listOf(widgetIds, favorites, widgetPosition, nowPlayingHasContent,
         editMode, safeArea.left, safeArea.top, safeArea.right, safeArea.bottom)
-    val shownWidgetHeight = resize.widgetPreview?.height ?: widgetHeightDp
     val shownNowPlayingHeight = resize.nowPlayingPreview?.height ?: nowPlayingHeightDp
 
     // On a fresh install the favorites are placed by measurement rather than by a stored
@@ -326,6 +326,9 @@ fun HomeScreen(
         else -> paddings[slot]
     }
 
+    fun currentWidgetSize() = ResizePreview(resize.widgetPreview?.height ?: widgetHeightDp,
+        padOf(PaddingSlot.WIDGET_TOP))
+
     fun setPadding(slot: PaddingSlot, value: Int) {
         // The centered placement is computed, not stored. Touching any other padding retires
         // it, so write out what is on screen first or the favorites snap to the stock gap.
@@ -340,7 +343,7 @@ fun HomeScreen(
     val nowPlayingResizeOverlay: @Composable BoxScope.() -> Unit = {
         if (resize.resizeTarget == ResizeTarget.NOW_PLAYING && !editMode) {
             ResizeOverlay(
-                value = ResizePreview(shownNowPlayingHeight, padOf(PaddingSlot.NOW_PLAYING_TOP)),
+                value = { ResizePreview(shownNowPlayingHeight, padOf(PaddingSlot.NOW_PLAYING_TOP)) },
                 range = 48..220,
                 safeTop = safeArea.top,
                 safeBottom = safeArea.bottom,
@@ -835,13 +838,17 @@ fun HomeScreen(
                 // Spacing handles live outside the draggable wrapper: inside it they would
                 // travel with a dragged row and skew the height the swap threshold uses.
                 if (item is HomeItem.Widget) {
-                    PaddingHandle(
-                        editMode = editMode,
-                        label = R.string.handle_widget_top,
-                        value = padOf(PaddingSlot.WIDGET_TOP),
-                        onChange = { setPadding(PaddingSlot.WIDGET_TOP, it) },
-                        contentColor = contentColor,
-                    )
+                    if (editMode) {
+                        PaddingHandle(
+                            editMode = true,
+                            label = R.string.handle_widget_top,
+                            value = padOf(PaddingSlot.WIDGET_TOP),
+                            onChange = { setPadding(PaddingSlot.WIDGET_TOP, it) },
+                            contentColor = contentColor,
+                        )
+                    } else {
+                        Spacer(Modifier.layoutHeight { padOf(PaddingSlot.WIDGET_TOP) })
+                    }
                 } else if (index == firstRowIndex) {
                     PaddingHandle(
                         editMode = editMode,
@@ -883,7 +890,7 @@ fun HomeScreen(
                             // slot and putting it against a side moves what it draws with it.
                             WidgetSlot(
                                 widgetIds = widgetIds,
-                                heightDp = shownWidgetHeight,
+                                heightDp = { currentWidgetSize().height },
                                 onEditLayout = { onEditModeChange(true) },
                                 actions = widgetActions,
                                 allowResize = !editMode,
@@ -896,7 +903,7 @@ fun HomeScreen(
                             )
                             if (resize.resizeTarget == ResizeTarget.WIDGET && !editMode) {
                                 ResizeOverlay(
-                                    value = ResizePreview(shownWidgetHeight, padOf(PaddingSlot.WIDGET_TOP)),
+                                    value = { currentWidgetSize() },
                                     range = 80..900,
                                     safeTop = safeArea.top,
                                     safeBottom = safeArea.bottom,
@@ -910,7 +917,7 @@ fun HomeScreen(
                                     onCancel = { resize.cancelPan(); resize.widgetPreview = null },
                                     onDragging = {
                                         if (it) resize.beginPan(windowSize, contentHeight,
-                                            ResizePreview(shownWidgetHeight, padOf(PaddingSlot.WIDGET_TOP)), resizeLayoutIdentity)
+                                            currentWidgetSize(), resizeLayoutIdentity)
                                         resize.resizeDragging = it
                                     },
                                     onMore = {

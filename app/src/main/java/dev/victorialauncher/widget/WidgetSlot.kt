@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
@@ -53,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.victorialauncher.VictoriaApp
 import dev.victorialauncher.ui.common.TouchAnchoredMenu
+import dev.victorialauncher.ui.common.layoutHeight
 import kotlinx.coroutines.delay
 import dev.victorialauncher.R
 import androidx.compose.ui.res.stringResource
@@ -79,7 +79,7 @@ data class WidgetSlotActions(
 @Composable
 fun WidgetSlot(
     widgetIds: List<Int>,
-    heightDp: Int,
+    heightDp: () -> Int,
     onEditLayout: () -> Unit,
     actions: WidgetSlotActions,
     allowResize: Boolean = true,
@@ -108,7 +108,7 @@ fun WidgetSlot(
         if (widgetId > 0 && allowResize) onStartResize() else menuExpanded = true
     }
 
-    Box(modifier = modifier.height(heightDp.dp)) {
+    Box(modifier = modifier.layoutHeight(heightDp)) {
         if (widgetIds.isEmpty()) {
             Surface(
                 modifier = Modifier

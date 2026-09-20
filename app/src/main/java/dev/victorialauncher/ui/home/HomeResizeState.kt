@@ -84,14 +84,18 @@ internal fun rememberHomeResizeState(
         if (editMode || (state.resizeTarget == ResizeTarget.WIDGET && !hasWidget) ||
             (state.resizeTarget == ResizeTarget.NOW_PLAYING && !nowPlayingHasContent)) state.resizeTarget = null
     }
-    LaunchedEffect(widgetHeightDp, paddings.widgetTop, state.widgetPreview, state.resizeDragging) {
-        if (!state.resizeDragging && state.widgetPreview == ResizePreview(widgetHeightDp, paddings.widgetTop)) {
-            state.widgetPreview = null
+    // During a drag the preview is layout input, not a composition key. Re-enter these
+    // effects on release, including a no-op tap, then retire the preview once storage agrees.
+    if (!state.resizeDragging) {
+        LaunchedEffect(widgetHeightDp, paddings.widgetTop, state.widgetPreview) {
+            if (state.widgetPreview == ResizePreview(widgetHeightDp, paddings.widgetTop)) {
+                state.widgetPreview = null
+            }
         }
-    }
-    LaunchedEffect(nowPlayingHeightDp, paddings.nowPlayingTop, state.nowPlayingPreview, state.resizeDragging) {
-        if (!state.resizeDragging && state.nowPlayingPreview == ResizePreview(nowPlayingHeightDp, paddings.nowPlayingTop)) {
-            state.nowPlayingPreview = null
+        LaunchedEffect(nowPlayingHeightDp, paddings.nowPlayingTop, state.nowPlayingPreview) {
+            if (state.nowPlayingPreview == ResizePreview(nowPlayingHeightDp, paddings.nowPlayingTop)) {
+                state.nowPlayingPreview = null
+            }
         }
     }
     return state

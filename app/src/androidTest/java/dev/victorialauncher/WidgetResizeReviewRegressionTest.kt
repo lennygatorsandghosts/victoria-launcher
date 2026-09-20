@@ -30,6 +30,28 @@ class WidgetResizeReviewRegressionTest {
     @Before fun setUp() = fixture.start()
     @After fun tearDown() = fixture.close()
 
+    @Test fun externalHeightUpdatesWhileIdleReachTheRenderedHostAfterResize() = with(fixture) {
+        enterResize()
+        val initialHeight = heightPref()
+        drag(BOTTOM_HANDLE, 40f)
+        await("Resize commits before the external update") { heightPref() == initialHeight + 40 }
+        device.pressBack()
+        assertTrue("Resize is idle", device.wait(Until.gone(By.desc(BOTTOM_HANDLE)), 3_000L))
+        val idleTop = bounds().top
+        // A measurement-time supplier must see each new stored value, not retain the
+        // previous gesture preview or a lambda capturing the first preference value.
+        for (height in listOf(initialHeight + 80, initialHeight - 40)) {
+            runBlocking { app.prefs.setWidgetHeightDp(height) }
+            await("Idle external height $height reaches actual AppWidgetHostView bounds") {
+                abs(bounds().height() / density - height) <= 2f
+            }
+            assertDp("External height update keeps the rendered top fixed",
+                idleTop / density, bounds().top / density)
+            assertFalse("External preference updates do not enter resize",
+                device.hasObject(By.desc(BOTTOM_HANDLE)))
+        }
+    }
+
     @Test fun noOpHandleTapThenExitDoesNotOverrideLaterEditLayoutHeight() = with(fixture) {
         enterResize()
         val initialHeight = heightPref()
