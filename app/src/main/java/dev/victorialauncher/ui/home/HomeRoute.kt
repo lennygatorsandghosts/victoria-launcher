@@ -517,6 +517,9 @@ fun HomeRoute(
                 nowPlayingEnabled = settings.nowPlayingEnabled,
                 nowPlayingHeightDp = settings.nowPlayingHeightDp,
                 onResizeNowPlaying = { scope.launch { app.prefs.setNowPlayingHeightDp(it) } },
+                onCommitResize = { slot, height, top ->
+                    scope.launch { app.prefs.setHomeBlockSize(slot, height, top) }
+                },
                 widgetActions = widgetActions,
                 onLaunch = { launchEntry(it) },
                 onRemoveFavorite = { scope.launch { app.prefs.removeFavorite(it.key) } },

@@ -1,4 +1,9 @@
 <resources>
+    <string name="resize_widget_top">Resize widget top</string>
+    <string name="resize_widget_bottom">Resize widget bottom</string>
+    <string name="resize_increase">Increase height by 1 dp</string>
+    <string name="resize_decrease">Decrease height by 1 dp</string>
+    <string name="resize_more">More</string>
     <string name="app_name">Victoria Launcher</string>
     <string name="accessibility_description">Lets the swipe-down gesture open the notification shade. Victoria Launcher does not read or act on screen content.</string>
 

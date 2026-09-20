@@ -703,6 +703,17 @@ class Prefs(private val context: Context) {
         context.dataStore.edit { it[Keys.NOW_PLAYING_HEIGHT_DP] = v }
     }
 
+    /** A resized top edge changes its height and preceding space as one stored layout. */
+    suspend fun setHomeBlockSize(slot: PaddingSlot, heightDp: Int, topPaddingDp: Int) {
+        require(slot == PaddingSlot.WIDGET_TOP || slot == PaddingSlot.NOW_PLAYING_TOP)
+        val widget = slot == PaddingSlot.WIDGET_TOP
+        context.dataStore.edit {
+            it[if (widget) Keys.WIDGET_HEIGHT_DP else Keys.NOW_PLAYING_HEIGHT_DP] =
+                heightDp.coerceIn(if (widget) 80..900 else 48..220)
+            it[if (widget) Keys.WIDGET_PAD_TOP else Keys.NOW_PLAYING_PAD_TOP] = topPaddingDp.coerceIn(0, 400)
+        }
+    }
+
     suspend fun setHomePadding(slot: PaddingSlot, v: Int) {
         val key = when (slot) {
             PaddingSlot.NOW_PLAYING_TOP -> Keys.NOW_PLAYING_PAD_TOP

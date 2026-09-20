@@ -80,6 +80,11 @@ fun WidgetSlot(
     heightDp: Int,
     onEditLayout: () -> Unit,
     actions: WidgetSlotActions,
+    allowResize: Boolean = true,
+    resizeMode: Boolean = false,
+    moreRequest: Int = 0,
+    onStartResize: () -> Unit = {},
+    onMenuVisibility: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -87,10 +92,15 @@ fun WidgetSlot(
     var menuForId by remember { mutableStateOf(-1) }
     val density = LocalDensity.current
 
+    LaunchedEffect(moreRequest) {
+        if (moreRequest > 0 && resizeMode) menuExpanded = true
+    }
+    LaunchedEffect(menuExpanded) { onMenuVisibility(menuExpanded) }
+
     fun openMenu(widgetId: Int, x: Float, y: Float) {
         menuForId = widgetId
         menuOffset = with(density) { DpOffset(x.toDp(), y.toDp()) }
-        menuExpanded = true
+        if (widgetId > 0 && allowResize) onStartResize() else menuExpanded = true
     }
 
     Box(modifier = modifier.height(heightDp.dp)) {
@@ -121,6 +131,7 @@ fun WidgetSlot(
             val pagerState = rememberPagerState(pageCount = { widgetIds.size })
             HorizontalPager(
                 state = pagerState,
+                userScrollEnabled = !resizeMode,
                 // Keyed by widget id so adding or removing one doesn't rebuild every host
                 // view; neighbors stay alive so a swipe doesn't land on a blank page.
                 key = { widgetIds[it] },
