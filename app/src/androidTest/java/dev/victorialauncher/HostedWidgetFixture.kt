@@ -162,12 +162,14 @@ internal class HostedWidgetFixture {
     }
 
     /** Each callback sees the actual fraction sent, before UP. At 24/36, 100dp means 66.67dp. */
-    fun drag(description: String, deltaDp: Float, moves: Int = 36,
+    fun drag(description: String, deltaDp: Float, moves: Int = 36, startAtRenderedEdge: Boolean = false,
              beforeFirstMove: () -> Unit = {},
              afterMove: (index: Int, sentDp: Float) -> Unit = { _, _ -> }) {
         val handle = handle(description)
         val x = handle.exactCenterX()
-        val y = handle.exactCenterY()
+        val y = if (!startAtRenderedEdge) handle.exactCenterY()
+            else if (description == TOP_HANDLE) handle.top + 2 * density
+            else handle.bottom - 2 * density
         val downTime = SystemClock.uptimeMillis()
         touch(downTime, MotionEvent.ACTION_DOWN, x, y)
         var currentY = y
@@ -188,13 +190,23 @@ internal class HostedWidgetFixture {
     /** A fixed-duration input stream; synchronous per-MOVE injection would stretch the
      * measurement by waiting for an input transaction before every following16ms delay. */
     fun dragForDuration(description: String, deltaDp: Float, durationMs: Long = 2_000,
-                        beforeFirstMove: () -> Unit = {}) {
+                        beforeFirstMove: () -> Unit = {},
+                        beforePastSlopMove: () -> Unit = {}) {
         val rect = handle(description)
         val x = rect.exactCenterX()
         val y = if (description == TOP_HANDLE) rect.top + 2 * density else rect.bottom - 2 * density
+        dragForDuration(x, y, deltaDp, durationMs, beforeFirstMove, beforePastSlopMove)
+    }
+
+    /** Shared real input path for the launcher and the plain-View calibration. */
+    fun dragForDuration(x: Float, y: Float, deltaDp: Float, durationMs: Long = 2_000,
+                        beforeFirstMove: () -> Unit = {},
+                        beforePastSlopMove: () -> Unit = {}) {
         val down = SystemClock.uptimeMillis()
         touch(down, MotionEvent.ACTION_DOWN, x, y)
         val started = SystemClock.uptimeMillis()
+        val touchSlop = ViewConfiguration.get(app).scaledTouchSlop
+        var passedSlop = false
         var currentY = y
         try {
             for (index in 1..120) {
@@ -202,6 +214,10 @@ internal class HostedWidgetFixture {
                 if (delay > 0) SystemClock.sleep(delay)
                 currentY = y + deltaDp * density * index / 120
                 if (index == 1) beforeFirstMove()
+                if (!passedSlop && kotlin.math.abs(currentY - y) > touchSlop) {
+                    passedSlop = true
+                    beforePastSlopMove()
+                }
                 touch(down, MotionEvent.ACTION_MOVE, x, currentY, synchronous = false)
             }
         } finally {
