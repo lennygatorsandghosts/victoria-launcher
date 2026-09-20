@@ -291,7 +291,9 @@ internal fun rasterise(
 }
 
 private fun compositeBadge(base: Bitmap, badge: Bitmap, geometry: BadgeGeometry): Bitmap {
-    val out = base.copy(Bitmap.Config.ARGB_8888, true) ?: base
+    // Drawn straight onto the icon that was just rendered for this row, which nothing else
+    // holds yet; copying it first cost an allocation and a full blit per bookmark.
+    val out = if (base.isMutable) base else base.copy(Bitmap.Config.ARGB_8888, true) ?: base
     val canvas = Canvas(out)
     val source: Rect? = null
     val flags = Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG
