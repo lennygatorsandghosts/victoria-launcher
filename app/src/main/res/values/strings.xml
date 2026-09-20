@@ -107,6 +107,7 @@
     <string name="settings_quick_launch_right">Swipe right below favorites</string>
     <string name="settings_quick_launch_none">None</string>
     <string name="button_content_description">Victoria button</string>
+    <string name="button_tap_action_label">Run the tap action</string>
     <string name="button_title">Victoria button</string>
     <string name="settings_button_show">Show the Victoria button</string>
     <string name="button_edit_tap">Edit tap action</string>

@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.victorialauncher.R
@@ -89,11 +90,17 @@ fun FloatingButton(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val haptics = LocalHapticFeedback.current
+    // Read inside a pointerInput block that is never restarted while the button is on screen,
+    // so the plain values would stay as they were when it started: the keyboard could be up and
+    // the button would still run the tap action instead of putting it away.
+    val currentImeVisible by rememberUpdatedState(imeVisible)
+    val currentAppListVisible by rememberUpdatedState(appListVisible)
     val currentTapAction by rememberUpdatedState(onTapAction)
     val currentSwipeAction by rememberUpdatedState(onSwipeAction)
     val currentFocusAppSearch by rememberUpdatedState(onFocusAppSearch)
     val currentOpenEditSheet by rememberUpdatedState(onOpenEditSheet)
     val buttonDescription = stringResource(R.string.button_content_description)
+    val tapLabel = stringResource(R.string.button_tap_action_label)
 
     val endInset = if (edgeSide != EdgeSide.LEFT) BUTTON_STRIP_INSET else BUTTON_EDGE_INSET
     val thresholdPx = with(density) { SWIPE_THRESHOLD.toPx() }
@@ -105,7 +112,23 @@ fun FloatingButton(
             .navigationBarsPadding()
             .padding(end = endInset, bottom = BUTTON_BOTTOM_INSET)
             .size(BUTTON_SIZE)
-            .semantics { contentDescription = buttonDescription }
+            // The gestures are read by hand below, so the button's own onClick is empty and an
+            // accessibility service activating it would do nothing. This gives the service the
+            // same tap the pointer handler runs.
+            .semantics {
+                contentDescription = buttonDescription
+                onClick(label = tapLabel) {
+                    runTap(
+                        currentImeVisible,
+                        currentAppListVisible,
+                        focusManager,
+                        keyboard,
+                        currentFocusAppSearch,
+                        currentTapAction,
+                    )
+                    true
+                }
+            }
             .pointerInput(thresholdPx, hapticsEnabled) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -136,14 +159,14 @@ fun FloatingButton(
 
                     when (result) {
                         ButtonGesture.Tap -> {
-                            when {
-                                imeVisible -> {
-                                    focusManager.clearFocus()
-                                    keyboard?.hide()
-                                }
-                                appListVisible -> currentFocusAppSearch()
-                                else -> currentTapAction()
-                            }
+                            runTap(
+                                currentImeVisible,
+                                currentAppListVisible,
+                                focusManager,
+                                keyboard,
+                                currentFocusAppSearch,
+                                currentTapAction,
+                            )
                         }
                         ButtonGesture.Fired, ButtonGesture.Cancel -> Unit
                         null -> {
@@ -203,3 +226,22 @@ private fun buttonIcon(action: ButtonAction): ImageVector = when (action) {
 }
 
 private enum class ButtonGesture { Tap, Fired, Cancel }
+
+/** What a tap does, wherever it comes from: the pointer handler or an accessibility service. */
+private fun runTap(
+    imeVisible: Boolean,
+    appListVisible: Boolean,
+    focusManager: androidx.compose.ui.focus.FocusManager,
+    keyboard: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    onFocusAppSearch: () -> Unit,
+    onTapAction: () -> Unit,
+) {
+    when {
+        imeVisible -> {
+            focusManager.clearFocus()
+            keyboard?.hide()
+        }
+        appListVisible -> onFocusAppSearch()
+        else -> onTapAction()
+    }
+}
