@@ -143,7 +143,6 @@ import kotlin.math.roundToInt
 import dev.victorialauncher.R
 import androidx.compose.ui.res.stringResource
 
-private enum class ResizeTarget { WIDGET, NOW_PLAYING }
 
 private sealed interface HomeItem {
     data object Widget : HomeItem
@@ -207,7 +206,7 @@ fun HomeScreen(
     nowPlayingEnabled: Boolean,
     nowPlayingHeightDp: Int,
     onResizeNowPlaying: (Int) -> Unit,
-    onCommitResize: (PaddingSlot, Int, Int) -> Unit,
+    onCommitResize: (PaddingSlot, Int, Int, Int?) -> Unit,
     widgetActions: WidgetSlotActions,
     onLaunch: (AppInfo) -> Unit,
     onRemoveFavorite: (AppInfo) -> Unit,
@@ -230,6 +229,7 @@ fun HomeScreen(
     iconSide: IconSide,
     editMode: Boolean,
     onEditModeChange: (Boolean) -> Unit,
+    onResizeModeChange: (Boolean) -> Unit,
     onEditScrubBand: () -> Unit,
     centerFavorites: Boolean,
     keepHomeOffStatusBar: Boolean,
@@ -303,37 +303,13 @@ fun HomeScreen(
     var liveSlot by remember { mutableStateOf<PaddingSlot?>(null) }
     var liveValue by remember { mutableIntStateOf(0) }
 
-    var resizeTarget by remember { mutableStateOf<ResizeTarget?>(null) }
-    var resizeDragging by remember { mutableStateOf(false) }
-    var resizeActivity by remember { mutableIntStateOf(0) }
-    var resizeBounds by remember { mutableStateOf(Rect.Zero) }
-    var resizeRootCoordinates: LayoutCoordinates? by remember { mutableStateOf(null) }
-    var widgetResizeMenu by remember { mutableStateOf(false) }
-    var widgetMoreRequest by remember { mutableIntStateOf(0) }
-    var widgetPreview by remember { mutableStateOf<ResizePreview?>(null) }
-    var nowPlayingPreview by remember { mutableStateOf<ResizePreview?>(null) }
-    val shownWidgetHeight = widgetPreview?.height ?: widgetHeightDp
-    val shownNowPlayingHeight = nowPlayingPreview?.height ?: nowPlayingHeightDp
-
-    BackHandler(resizeTarget != null) { resizeTarget = null }
-    LaunchedEffect(resizeTarget, resizeDragging, widgetResizeMenu, nowPlayingMenu, resizeActivity) {
-        if (resizeTarget != null && !resizeDragging && !widgetResizeMenu && !nowPlayingMenu) {
-            delay(3_000L)
-            resizeTarget = null
-        }
-    }
-    LaunchedEffect(editMode, widgetIds, nowPlayingHasContent) {
-        if (editMode || (resizeTarget == ResizeTarget.WIDGET && widgetIds.isEmpty()) ||
-            (resizeTarget == ResizeTarget.NOW_PLAYING && !nowPlayingHasContent)) resizeTarget = null
-    }
-    // Keep the final preview until DataStore publishes the atomic pair, avoiding a frame that
-    // snaps back to the old height between release and the completed write.
-    LaunchedEffect(widgetHeightDp, paddings.widgetTop) {
-        if (widgetPreview == ResizePreview(widgetHeightDp, paddings.widgetTop)) widgetPreview = null
-    }
-    LaunchedEffect(nowPlayingHeightDp, paddings.nowPlayingTop) {
-        if (nowPlayingPreview == ResizePreview(nowPlayingHeightDp, paddings.nowPlayingTop)) nowPlayingPreview = null
-    }
+    val resize = rememberHomeResizeState(editMode, widgetIds.isNotEmpty(), nowPlayingHasContent,
+        widgetHeightDp, nowPlayingHeightDp, paddings, nowPlayingMenu, onResizeModeChange)
+    var contentHeight by remember { mutableIntStateOf(0) }
+    val resizeLayoutIdentity = listOf(widgetIds, favorites, widgetPosition, nowPlayingHasContent,
+        editMode, safeArea.left, safeArea.top, safeArea.right, safeArea.bottom)
+    val shownWidgetHeight = resize.widgetPreview?.height ?: widgetHeightDp
+    val shownNowPlayingHeight = resize.nowPlayingPreview?.height ?: nowPlayingHeightDp
 
     // On a fresh install the favorites are placed by measurement rather than by a stored
     // number: centered, which is where a thumb and the A-Z strip both want them. Landing at
@@ -343,8 +319,8 @@ fun HomeScreen(
     var rootY by remember { mutableFloatStateOf(0f) }
 
     fun padOf(slot: PaddingSlot): Int = when {
-        slot == PaddingSlot.WIDGET_TOP && widgetPreview != null -> widgetPreview!!.topPadding
-        slot == PaddingSlot.NOW_PLAYING_TOP && nowPlayingPreview != null -> nowPlayingPreview!!.topPadding
+        slot == PaddingSlot.WIDGET_TOP && resize.widgetPreview != null -> resize.widgetPreview!!.topPadding
+        slot == PaddingSlot.NOW_PLAYING_TOP && resize.nowPlayingPreview != null -> resize.nowPlayingPreview!!.topPadding
         liveSlot == slot -> liveValue
         centerFavorites && slot == PaddingSlot.FAVORITES_TOP && centeredFavTopDp > 0 -> centeredFavTopDp
         else -> paddings[slot]
@@ -362,19 +338,25 @@ fun HomeScreen(
     }
 
     val nowPlayingResizeOverlay: @Composable BoxScope.() -> Unit = {
-        if (resizeTarget == ResizeTarget.NOW_PLAYING && !editMode) {
+        if (resize.resizeTarget == ResizeTarget.NOW_PLAYING && !editMode) {
             ResizeOverlay(
                 value = ResizePreview(shownNowPlayingHeight, padOf(PaddingSlot.NOW_PLAYING_TOP)),
                 range = 48..220,
                 safeTop = safeArea.top,
                 safeBottom = safeArea.bottom,
-                onBounds = { resizeBounds = it },
-                onPreview = { nowPlayingPreview = it },
+                onBounds = { resize.resizeBounds = it },
+                onPreview = { resize.previewPan(it); resize.nowPlayingPreview = it },
                 onCommit = {
-                    resizeActivity++
-                    onCommitResize(PaddingSlot.NOW_PLAYING_TOP, it.height, it.topPadding)
+                    resize.resizeActivity++
+                    onCommitResize(PaddingSlot.NOW_PLAYING_TOP, it.height, it.topPadding,
+                        if (centerFavorites) padOf(PaddingSlot.FAVORITES_TOP) else null)
                 },
-                onDragging = { resizeDragging = it },
+                onCancel = { resize.cancelPan(); resize.nowPlayingPreview = null },
+                onDragging = {
+                    if (it) resize.beginPan(windowSize, contentHeight,
+                        ResizePreview(shownNowPlayingHeight, padOf(PaddingSlot.NOW_PLAYING_TOP)), resizeLayoutIdentity)
+                    resize.resizeDragging = it
+                },
                 onMore = { nowPlayingMenu = true },
             )
         }
@@ -509,12 +491,17 @@ fun HomeScreen(
     // Free vertical drag with spring bounce at both ends, outside edit mode.
     val offsetY = remember { Animatable(0f) }
     var viewportHeight by remember { mutableIntStateOf(0) }
-    var contentHeight by remember { mutableIntStateOf(0) }
     val minOffset = safeArea.minOffset(contentHeight.toFloat())
     // Turning the phone changes how much there is to scroll through. A stack dragged up in
     // landscape kept that offset when the screen went tall again, which left it sitting above
     // the top of the display with nothing on screen to drag it back down by.
-    LaunchedEffect(minOffset) {
+    LaunchedEffect(minOffset, windowSize, resizeLayoutIdentity) {
+        // Shrinking the owned block must not move its opposite edge by clamping the user's
+        // pan. Keep that pan after release too; unrelated layout/viewport changes still clamp.
+        if (resize.panAnchor?.matches(windowSize, contentHeight, density.density, resizeLayoutIdentity) == true) {
+            return@LaunchedEffect
+        }
+        resize.panAnchor = null
         val settled = offsetY.value.coerceIn(minOffset, 0f)
         if (settled != offsetY.value) offsetY.snapTo(settled)
     }
@@ -541,6 +528,21 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .onSizeChanged { windowSize = it }
+            .onGloballyPositioned { resize.resizeRootCoordinates = it }
+            .pointerInput(resize.resizeTarget) {
+                if (resize.resizeTarget != null) awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val windowPosition = resize.resizeRootCoordinates?.localToWindow(down.position)
+                    if (windowPosition != null && !resize.resizeBounds.contains(windowPosition)) {
+                        down.consume()
+                        resize.resizeTarget = null
+                    } else {
+                        // A press on More is activity too, before its eventual click opens
+                        // the menu and pauses the idle timeout for as long as it stays open.
+                        resize.resizeActivity++
+                    }
+                }
+            }
             .absolutePadding(
                 left = with(density) { safeArea.left.toDp() },
                 top = with(density) { safeArea.top.toDp() },
@@ -548,24 +550,13 @@ fun HomeScreen(
                 bottom = with(density) { (windowSize.height - safeArea.bottom).coerceAtLeast(0f).toDp() },
             )
             .onSizeChanged { viewportHeight = it.height }
-            .onGloballyPositioned {
-                rootY = it.positionInWindow().y
-                resizeRootCoordinates = it
-            }
-            .pointerInput(resizeTarget) {
-                if (resizeTarget != null) awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    val windowPosition = resizeRootCoordinates?.localToWindow(down.position)
-                    if (windowPosition != null && !resizeBounds.contains(windowPosition)) {
-                        down.consume()
-                        resizeTarget = null
-                    }
-                }
-            }
+            .onGloballyPositioned { rootY = it.positionInWindow().y }
             .draggable(
                 orientation = Orientation.Vertical,
-                enabled = !editMode && liveSlot == null && resizeTarget == null,
+                enabled = !editMode && liveSlot == null && resize.resizeTarget == null,
                 onDragStarted = {
+                    resize.panAnchor = null
+                    offsetY.snapTo(offsetY.value.coerceIn(minOffset, 0f))
                     rawPullDown = 0f
                     rawPullUp = 0f
                     pullActionFired = false
@@ -783,8 +774,8 @@ fun HomeScreen(
                     menuOffset = nowPlayingMenuOffset,
                     onStartResize = { offset ->
                         nowPlayingMenuOffset = offset
-                        resizeTarget = ResizeTarget.NOW_PLAYING
-                        resizeActivity++
+                        resize.resizeTarget = ResizeTarget.NOW_PLAYING
+                        resize.resizeActivity++
                     },
                     resizeOverlay = nowPlayingResizeOverlay,
                     onOpenMenu = { offset -> nowPlayingMenuOffset = offset; nowPlayingMenu = true },
@@ -896,26 +887,36 @@ fun HomeScreen(
                                 onEditLayout = { onEditModeChange(true) },
                                 actions = widgetActions,
                                 allowResize = !editMode,
-                                resizeMode = resizeTarget == ResizeTarget.WIDGET,
-                                moreRequest = widgetMoreRequest,
-                                onStartResize = { resizeTarget = ResizeTarget.WIDGET; resizeActivity++ },
-                                onMenuVisibility = { widgetResizeMenu = it },
+                                resizeMode = resize.resizeTarget == ResizeTarget.WIDGET,
+                                resizeDragging = resize.resizeDragging,
+                                moreRequest = resize.widgetMoreRequest,
+                                onStartResize = { resize.resizeTarget = ResizeTarget.WIDGET; resize.resizeActivity++ },
+                                onMenuVisibility = { resize.widgetResizeMenu = it },
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                            if (resizeTarget == ResizeTarget.WIDGET && !editMode) {
+                            if (resize.resizeTarget == ResizeTarget.WIDGET && !editMode) {
                                 ResizeOverlay(
                                     value = ResizePreview(shownWidgetHeight, padOf(PaddingSlot.WIDGET_TOP)),
                                     range = 80..900,
                                     safeTop = safeArea.top,
                                     safeBottom = safeArea.bottom,
-                                    onBounds = { resizeBounds = it },
-                                    onPreview = { widgetPreview = it },
+                                    onBounds = { resize.resizeBounds = it },
+                                    onPreview = { resize.previewPan(it); resize.widgetPreview = it },
                                     onCommit = {
-                                        resizeActivity++
-                                        onCommitResize(PaddingSlot.WIDGET_TOP, it.height, it.topPadding)
+                                        resize.resizeActivity++
+                                        onCommitResize(PaddingSlot.WIDGET_TOP, it.height, it.topPadding,
+                                            if (centerFavorites) padOf(PaddingSlot.FAVORITES_TOP) else null)
                                     },
-                                    onDragging = { resizeDragging = it },
-                                    onMore = { widgetResizeMenu = true; widgetMoreRequest++ },
+                                    onCancel = { resize.cancelPan(); resize.widgetPreview = null },
+                                    onDragging = {
+                                        if (it) resize.beginPan(windowSize, contentHeight,
+                                            ResizePreview(shownWidgetHeight, padOf(PaddingSlot.WIDGET_TOP)), resizeLayoutIdentity)
+                                        resize.resizeDragging = it
+                                    },
+                                    onMore = {
+                                        resize.widgetResizeMenu = true
+                                        resize.widgetMoreRequest++
+                                    },
                                 )
                             }
                             // The widget is a row in the order like any other, so it needs a
@@ -1035,8 +1036,8 @@ fun HomeScreen(
                             menuOffset = nowPlayingMenuOffset,
                             onStartResize = { offset ->
                                 nowPlayingMenuOffset = offset
-                                resizeTarget = ResizeTarget.NOW_PLAYING
-                                resizeActivity++
+                                resize.resizeTarget = ResizeTarget.NOW_PLAYING
+                                resize.resizeActivity++
                             },
                             resizeOverlay = nowPlayingResizeOverlay,
                             onOpenMenu = { offset -> nowPlayingMenuOffset = offset; nowPlayingMenu = true },

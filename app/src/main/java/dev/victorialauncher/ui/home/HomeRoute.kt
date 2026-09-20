@@ -203,6 +203,7 @@ fun HomeRoute(
     var viewportHeightPx by remember { mutableIntStateOf(0) }
     var favBand by remember { mutableStateOf<ScrubBand?>(null) }
     var homeEditMode by remember { mutableStateOf(false) }
+    var homeResizeMode by remember { mutableStateOf(false) }
     var folderPickerFor by remember { mutableStateOf<AppInfo?>(null) }
 
     val nowPlaying by NowPlayingBus.state.collectAsState()
@@ -518,8 +519,8 @@ fun HomeRoute(
                 nowPlayingEnabled = settings.nowPlayingEnabled,
                 nowPlayingHeightDp = settings.nowPlayingHeightDp,
                 onResizeNowPlaying = { scope.launch { app.prefs.setNowPlayingHeightDp(it) } },
-                onCommitResize = { slot, height, top ->
-                    scope.launch { app.prefs.setHomeBlockSize(slot, height, top) }
+                onCommitResize = { slot, height, top, favoritesTop ->
+                    scope.launch { app.prefs.setHomeBlockSize(slot, height, top, favoritesTop) }
                 },
                 widgetActions = widgetActions,
                 onLaunch = { launchEntry(it) },
@@ -570,6 +571,7 @@ fun HomeRoute(
                 iconSide = settings.iconSide,
                 editMode = homeEditMode,
                 onEditModeChange = { homeEditMode = it },
+                onResizeModeChange = { homeResizeMode = it },
                 onEditScrubBand = { liveBand = band; bandEditMode = true },
                 centerFavorites = settings.centerFavorites,
                 keepHomeOffStatusBar = settings.keepHomeOffStatusBar,
@@ -741,7 +743,7 @@ fun HomeRoute(
         val showIdleStripNow = when {
             appListVisible -> false
             bandEditMode -> true
-            homeEditMode -> false
+            homeEditMode || homeResizeMode -> false
             else -> stripAlwaysVisible
         }
         if (showIdleStripNow) {
@@ -809,7 +811,9 @@ fun HomeRoute(
 
         // Edge zones sit on top of everything, so one unbroken touch opens the list and then
         // scrubs it as the finger moves.
-        if (!homeEditMode && !bandEditMode && appListQuery.isEmpty()) {
+        // In-place resize owns its controls at the screen edge, including More. The invisible
+        // A-Z touch zone would otherwise consume their DOWN before they could receive a click.
+        if (!homeEditMode && !homeResizeMode && !bandEditMode && appListQuery.isEmpty()) {
             val sides = remember(settings.edgeSide) {
                 when (settings.edgeSide) {
                     EdgeSide.LEFT -> listOf(EdgeSide.LEFT)

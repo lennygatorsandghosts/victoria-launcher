@@ -62,7 +62,9 @@ internal class HostedWidgetFixture {
         pref("hide_status_bar", "boolean", false)
         pref("welcome_seen", "boolean", true)
         pref("niagara_offer_seen", "boolean", true)
-        pref("layout_defaults_version", "int", 2)
+        // Resize arithmetic starts from an already-migrated layout. Migration has its own
+        // B suite; otherwise it consumes part of the60dp top-drag fixture's free space.
+        pref("layout_defaults_version", "int", 3)
         runBlocking {
             check(app.prefs.importJson(JSONObject().put("format", 1).put("values", values).toString()))
         }
@@ -183,11 +185,35 @@ internal class HostedWidgetFixture {
         }
     }
 
-    private fun touch(downTime: Long, action: Int, x: Float, y: Float) {
+    /** A fixed-duration input stream; synchronous per-MOVE injection would stretch the
+     * measurement by waiting for an input transaction before every following16ms delay. */
+    fun dragForDuration(description: String, deltaDp: Float, durationMs: Long = 2_000,
+                        beforeFirstMove: () -> Unit = {}) {
+        val rect = handle(description)
+        val x = rect.exactCenterX()
+        val y = if (description == TOP_HANDLE) rect.top + 2 * density else rect.bottom - 2 * density
+        val down = SystemClock.uptimeMillis()
+        touch(down, MotionEvent.ACTION_DOWN, x, y)
+        val started = SystemClock.uptimeMillis()
+        var currentY = y
+        try {
+            for (index in 1..120) {
+                val delay = started + durationMs * index / 120 - SystemClock.uptimeMillis()
+                if (delay > 0) SystemClock.sleep(delay)
+                currentY = y + deltaDp * density * index / 120
+                if (index == 1) beforeFirstMove()
+                touch(down, MotionEvent.ACTION_MOVE, x, currentY, synchronous = false)
+            }
+        } finally {
+            touch(down, MotionEvent.ACTION_UP, x, currentY)
+        }
+    }
+
+    private fun touch(downTime: Long, action: Int, x: Float, y: Float, synchronous: Boolean = true) {
         val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0)
         event.source = InputDevice.SOURCE_TOUCHSCREEN
         try {
-            assertTrue("Touch event injection failed", instrumentation.uiAutomation.injectInputEvent(event, true))
+            assertTrue("Touch event injection failed", instrumentation.uiAutomation.injectInputEvent(event, synchronous))
         } finally {
             event.recycle()
         }

@@ -741,13 +741,25 @@ class Prefs(private val context: Context) {
     }
 
     /** A resized top edge changes its height and preceding space as one stored layout. */
-    suspend fun setHomeBlockSize(slot: PaddingSlot, heightDp: Int, topPaddingDp: Int) {
+    suspend fun setHomeBlockSize(
+        slot: PaddingSlot,
+        heightDp: Int,
+        topPaddingDp: Int,
+        computedFavoritesTopDp: Int? = null,
+    ) {
         require(slot == PaddingSlot.WIDGET_TOP || slot == PaddingSlot.NOW_PLAYING_TOP)
         val widget = slot == PaddingSlot.WIDGET_TOP
         context.dataStore.edit {
             it[if (widget) Keys.WIDGET_HEIGHT_DP else Keys.NOW_PLAYING_HEIGHT_DP] =
                 heightDp.coerceIn(if (widget) 80..900 else 48..220)
             it[if (widget) Keys.WIDGET_PAD_TOP else Keys.NOW_PLAYING_PAD_TOP] = topPaddingDp.coerceIn(0, 400)
+            // A custom block padding retires automatic favorites centering. Carry the visible
+            // gap into that same transaction so the favorites do not jump when it is retired.
+            if (computedFavoritesTopDp != null) {
+                // Measured centering can exceed the manual stepper's 400dp range on a
+                // tall display. Preserve that existing layout when retiring centering.
+                it[Keys.FAVORITES_PAD_TOP] = computedFavoritesTopDp.coerceAtLeast(0)
+            }
         }
     }
 

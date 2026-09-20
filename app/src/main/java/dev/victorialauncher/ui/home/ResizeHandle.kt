@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -60,7 +61,10 @@ private fun resizeFromEdge(
             initial.height + ((bounds.top - safeTop) / density).toInt())
     } else {
         minOf(range.last, initial.height + ((safeBottom - bounds.bottom) / density).toInt())
-    }.coerceAtLeast(minimum)
+    // A scroll may already leave this edge outside the safe viewport while part of its
+    // handle remains reachable. Do not repair that scroll position with a zero-distance
+    // resize; allow inward movement, and prevent further growth past the starting edge.
+    }.coerceAtLeast(initial.height).coerceAtLeast(minimum)
     val height = requested.coerceIn(minimum, maximum)
     return ResizePreview(height, if (top) initial.topPadding + initial.height - height else initial.topPadding)
 }
@@ -75,6 +79,7 @@ fun BoxScope.ResizeOverlay(
     onBounds: (Rect) -> Unit,
     onPreview: (ResizePreview) -> Unit,
     onCommit: (ResizePreview) -> Unit,
+    onCancel: () -> Unit,
     onDragging: (Boolean) -> Unit,
     onMore: () -> Unit,
 ) {
@@ -103,12 +108,15 @@ fun BoxScope.ResizeOverlay(
             },
             onPreview = onPreview,
             onCommit = onCommit,
+            onCancel = onCancel,
             onEnd = { onDragging(false) },
             onStep = { increase ->
+                onDragging(true)
                 val delta = density * (if (increase) 1 else -1) * (if (top) -1 else 1)
                 val next = resizeFromEdge(value, bounds, top, delta, density, range, safeTop, safeBottom)
                 onPreview(next)
                 onCommit(next)
+                onDragging(false)
             },
         )
     }
@@ -125,6 +133,7 @@ private fun ResizeHandle(
     onStart: () -> ((Float) -> ResizePreview),
     onPreview: (ResizePreview) -> Unit,
     onCommit: (ResizePreview) -> Unit,
+    onCancel: () -> Unit,
     onEnd: () -> Unit,
     onStep: (Boolean) -> Unit,
 ) {
@@ -132,6 +141,7 @@ private fun ResizeHandle(
     val start by rememberUpdatedState(onStart)
     val preview by rememberUpdatedState(onPreview)
     val commit by rememberUpdatedState(onCommit)
+    val cancel by rememberUpdatedState(onCancel)
     val end by rememberUpdatedState(onEnd)
     val description = stringResource(if (top) R.string.resize_widget_top else R.string.resize_widget_bottom)
     val increase = stringResource(R.string.resize_increase)
@@ -159,11 +169,15 @@ private fun ResizeHandle(
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            // Compose sends a consumed synthetic up when Android cancels the
+                            // stream. Only an unconsumed real release may persist a resize.
+                            val released = change.changedToUp()
+                            if (change.isConsumed || (!change.pressed && !released)) break
                             val position = coordinates?.localToWindow(change.position) ?: break
                             val result = calculate(position.y - origin.y)
                             preview(result)
                             change.consume()
-                            if (!change.pressed) {
+                            if (released) {
                                 // No DataStore writes occur in the movement loop.
                                 commit(result)
                                 committed = true
@@ -171,14 +185,14 @@ private fun ResizeHandle(
                             }
                         }
                     } finally {
-                        if (!committed) preview(calculate(0f))
+                        if (!committed) cancel()
                         end()
                     }
                 }
             },
-        contentAlignment = Alignment.Center,
+        contentAlignment = if (top) Alignment.TopCenter else Alignment.BottomCenter,
     ) {
-        Box(Modifier.size(width = 40.dp, height = 5.dp)
+        Box(Modifier.size(width = 40.dp, height = 4.dp)
             .background(Color.White, RoundedCornerShape(3.dp)))
     }
 }

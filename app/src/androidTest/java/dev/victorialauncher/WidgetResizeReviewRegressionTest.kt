@@ -86,10 +86,11 @@ class WidgetResizeReviewRegressionTest {
         runBlocking {
             app.prefs.setSwipeUpOpensList(false)
             app.prefs.setWidgetHeightDp(900)
+            app.prefs.setHomePadding(dev.victorialauncher.data.PaddingSlot.WIDGET_BOTTOM, 200)
         }
         await("Overflow fixture has an actual 900dp host") { abs(bounds().height() / density - 900f) <= 2f }
-        assertTrue("This overflow regression requires a phone-sized viewport shorter than the 900dp host",
-            bounds().height() > device.displayHeight)
+        assertTrue("The complete widget block, including its trailing gap, must overflow the viewport",
+            bounds().bottom + 200f * density > device.displayHeight)
         var lastBottom = bounds().bottom
         var consecutiveStationarySwipes = 0
         var reachedBottom = false

@@ -35,9 +35,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -82,6 +84,7 @@ fun WidgetSlot(
     actions: WidgetSlotActions,
     allowResize: Boolean = true,
     resizeMode: Boolean = false,
+    resizeDragging: Boolean = false,
     moreRequest: Int = 0,
     onStartResize: () -> Unit = {},
     onMenuVisibility: (Boolean) -> Unit = {},
@@ -95,7 +98,9 @@ fun WidgetSlot(
     LaunchedEffect(moreRequest) {
         if (moreRequest > 0 && resizeMode) menuExpanded = true
     }
-    LaunchedEffect(menuExpanded) { onMenuVisibility(menuExpanded) }
+    LaunchedEffect(menuExpanded) {
+        onMenuVisibility(menuExpanded)
+    }
 
     fun openMenu(widgetId: Int, x: Float, y: Float) {
         menuForId = widgetId
@@ -139,7 +144,11 @@ fun WidgetSlot(
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
                 val id = widgetIds[page]
-                WidgetPage(widgetId = id, onPressAndHold = { x, y -> openMenu(id, x, y) })
+                WidgetPage(
+                    widgetId = id,
+                    sizeUpdatesPaused = resizeDragging,
+                    onPressAndHold = { x, y -> openMenu(id, x, y) },
+                )
             }
 
             if (widgetIds.size > 1) {
@@ -229,18 +238,38 @@ fun WidgetSlot(
     }
 }
 
-/** One hosted widget. [onLongPress] carries the press position in this page's local pixels. */
+/** Size reporting is bookkeeping, not state that should recompose the widget it measures. */
+private class WidgetSizeReporter(private val manager: AppWidgetManager, private val widgetId: Int) {
+    var hostView: AppWidgetHostView? = null
+    var latestSizeDp = 0 to 0
+    private var reportedSizeDp = 0 to 0
+
+    fun reportLatest() {
+        val host = hostView ?: return
+        val size = latestSizeDp
+        val (width, height) = size
+        if (width <= 0 || height <= 0 || size == reportedSizeDp) return
+        // Preserve the publisher's existing options, including responsive layout metadata.
+        val options = runCatching { manager.getAppWidgetOptions(widgetId) }.getOrNull() ?: Bundle()
+        host.updateAppWidgetSize(options, width, height, width, height)
+        reportedSizeDp = size
+    }
+}
+
+/** One hosted widget. [onPressAndHold] carries this page's local press position. */
 @Composable
-private fun WidgetPage(widgetId: Int, onPressAndHold: (x: Float, y: Float) -> Unit) {
+private fun WidgetPage(
+    widgetId: Int,
+    sizeUpdatesPaused: Boolean,
+    onPressAndHold: (x: Float, y: Float) -> Unit,
+) {
     val context = LocalContext.current
     val app = context.applicationContext as VictoriaApp
-    val appWidgetManager = remember { AppWidgetManager.getInstance(context) }
-    val providerInfo: AppWidgetProviderInfo? = remember(widgetId) {
+    val appWidgetManager = remember(context) { AppWidgetManager.getInstance(context) }
+    val providerInfo: AppWidgetProviderInfo? = remember(widgetId, appWidgetManager) {
         if (widgetId > 0) appWidgetManager.getAppWidgetInfo(widgetId) else null
     }
     val density = LocalDensity.current
-    var slotSizeDp by remember { mutableStateOf(0 to 0) }
-    var reportedSizeDp by remember(widgetId) { mutableStateOf(0 to 0) }
 
     if (providerInfo == null) {
         // The provider is gone — its app was uninstalled or disabled. Draw something that
@@ -266,48 +295,48 @@ private fun WidgetPage(widgetId: Int, onPressAndHold: (x: Float, y: Float) -> Un
         return
     }
 
-    // A real long-press (finger held still) opens the edit menu; an ordinary tap or drag
-    // still reaches the widget's own view untouched — see LongPressFrameLayout.
-    AndroidView(
-        modifier = Modifier
-            .fillMaxSize()
-            .onSizeChanged { size ->
-                slotSizeDp = with(density) { size.width.toDp().value.toInt() to size.height.toDp().value.toInt() }
-            },
-        factory = { ctx ->
-            // A widget draws with code from the app that provides it, and one that throws on
-            // the way up would otherwise take the launcher down with it — leaving a home
-            // screen that crashes on sight and no obvious way back. An empty slot is a poor
-            // widget but it is still a home screen.
-            val hostView = runCatching {
-                app.widgetHost.createView(ctx, widgetId, providerInfo).apply {
-                    setAppWidget(widgetId, providerInfo)
+    val sizes = remember(widgetId, providerInfo, appWidgetManager) {
+        WidgetSizeReporter(appWidgetManager, widgetId)
+    }
+    LaunchedEffect(sizes, sizeUpdatesPaused) {
+        if (!sizeUpdatesPaused) {
+            // Allow the release/cancellation layout to complete before reporting its size.
+            // If layout itself reports first, the remembered reported size makes this a no-op.
+            withFrameNanos { }
+            sizes.reportLatest()
+        }
+    }
+
+    // Recreate the host when its identity changes. Ordinary preview recompositions only update
+    // the press callback; rebinding the same host every frame repeats framework setup work.
+    key(widgetId, providerInfo) {
+        AndroidView(
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { size ->
+                    sizes.latestSizeDp = with(density) {
+                        size.width.toDp().value.toInt() to size.height.toDp().value.toInt()
+                    }
+                    // The real host still measures and draws at every preview size. Only the
+                    // provider's binder size notifications wait until the gesture finishes.
+                    if (!sizeUpdatesPaused) sizes.reportLatest()
+                },
+            factory = { ctx ->
+                // A broken provider must leave an empty slot, not crash the home screen.
+                val hostView = runCatching {
+                    app.widgetHost.createView(ctx, widgetId, providerInfo).apply {
+                        setAppWidget(widgetId, providerInfo)
+                    }
+                }.getOrNull()
+                sizes.hostView = hostView
+                LongPressFrameLayout(ctx).apply {
+                    hostView?.let { addView(it) }
+                    onLongPress = { x, y -> onPressAndHold(x, y) }
                 }
-            }.getOrNull()
-            LongPressFrameLayout(ctx).apply {
-                hostView?.let { addView(it) }
-                onLongPress = { x, y -> onPressAndHold(x, y) }
-            }
-        },
-        update = { container ->
-            val hostView = container.getChildAt(0) as? AppWidgetHostView
-            runCatching { hostView?.setAppWidget(widgetId, providerInfo) }
-            // Widgets lay themselves out for the size they were *told*, not the size of the
-            // view; without this they render for some other size and get clipped.
-            //
-            // Pass the widget's existing options rather than an empty Bundle — a blank one
-            // replaces them outright, dropping the size hints (and on Android 12+ the size
-            // list) that responsive widgets pick their layout from, which is how a widget
-            // ends up drawing half its text. Only report real changes, since this ran on
-            // every recomposition.
-            val (wDp, hDp) = slotSizeDp
-            if (hostView != null && wDp > 0 && hDp > 0 && slotSizeDp != reportedSizeDp) {
-                reportedSizeDp = slotSizeDp
-                val options = runCatching { appWidgetManager.getAppWidgetOptions(widgetId) }
-                    .getOrNull() ?: Bundle()
-                hostView.updateAppWidgetSize(options, wDp, hDp, wDp, hDp)
-            }
-            container.onLongPress = { x, y -> onPressAndHold(x, y) }
-        },
-    )
+            },
+            update = { container ->
+                container.onLongPress = { x, y -> onPressAndHold(x, y) }
+            },
+        )
+    }
 }
