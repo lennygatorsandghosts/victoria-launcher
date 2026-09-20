@@ -313,8 +313,15 @@ class PrivateSpaceLauncherTest {
         LauncherTestUtils.filterAppList(term)
     }
 
-    /** The favorites screen, reached the way anyone reaches it: the wallpaper's own menu. */
+    /** Use the empty-home button when present, otherwise the wallpaper's own menu. */
     private fun openFavoritesScreen() {
+        device.findObject(By.text(CHOOSE_FAVORITES_LABEL))?.let { button ->
+            button.click()
+            check(device.wait(Until.hasObject(By.text(FAVORITES_TITLE)), 5_000L)) {
+                "the favorites screen did not open"
+            }
+            return
+        }
         val x = device.displayWidth / 2
         // Favorites sit at the bottom, so the empty wallpaper to look for is above them. Tried
         // at a few heights rather than one, because how much of it is empty depends on what is
