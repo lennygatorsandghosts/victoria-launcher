@@ -313,14 +313,17 @@ fun VictoriaNavHost(
     val iconSide by app.prefs.iconSide.collectAsState(initial = IconSide.LEFT)
     val statusBarPeekSeconds by app.prefs.statusBarPeekSeconds.collectAsState(initial = 5)
     val scrubBand by app.prefs.scrubBand.collectAsState(initial = null)
-    val layoutDefaultsVersion by app.prefs.layoutDefaultsVersion.collectAsState(initial = null)
+    val isFirstRunLayout by app.prefs.isFirstRunLayout.collectAsState(initial = false)
+    val keepHomeOffStatusBar by app.prefs.keepHomeOffStatusBar.collectAsState(initial = true)
+    val homeSafeMarginDp by app.prefs.homeSafeMarginDp.collectAsState(initial = 0)
+    val homeLayoutMigrationState by app.prefs.homeLayoutMigrationState.collectAsState(initial = null)
 
     // A brand new launcher gets its own clock, so the home screen is not simply empty on first
     // sight. Only ever on an install that has never been set up — the marker is written once,
     // before anything the user does — and only while there is no widget at all, so nobody's
     // arrangement is added to and a widget they removed does not come back.
-    LaunchedEffect(layoutDefaultsVersion, widgetIds) {
-        if (layoutDefaultsVersion != 1 || widgetIds.isNotEmpty()) return@LaunchedEffect
+    LaunchedEffect(isFirstRunLayout, widgetIds) {
+        if (!isFirstRunLayout || widgetIds.isNotEmpty()) return@LaunchedEffect
         val manager = AppWidgetManager.getInstance(context)
         val id = app.widgetHost.allocateAppWidgetId()
         val bound = runCatching {
@@ -456,7 +459,10 @@ fun VictoriaNavHost(
         quickLaunchRight = quickLaunchRightKey?.let { appsByKey[it] },
         // Both flows start null/true so nothing is centered or offered before the stored
         // answer arrives; a legacy install is stamped 0 and never enters either path.
-        centerFavorites = layoutDefaultsVersion == 1 && !hasCustomLayout,
+        centerFavorites = isFirstRunLayout && !hasCustomLayout,
+        keepHomeOffStatusBar = keepHomeOffStatusBar,
+        homeSafeMarginDp = homeSafeMarginDp,
+        layoutMigrationState = homeLayoutMigrationState,
         dimWallpaperAlpha = dimWallpaperAlpha,
         dimHomeAlpha = dimHomeAlpha,
         dimColor = dimColor,
@@ -555,7 +561,7 @@ fun VictoriaNavHost(
                 // Both flows start at a value that shows nothing, so the dialog can't flash
                 // before the stored answer arrives. A legacy install is stamped 0 and never
                 // qualifies.
-                showWelcome = layoutDefaultsVersion == 1 && !welcomeSeen,
+                showWelcome = isFirstRunLayout && !welcomeSeen,
                 onWelcomeDismissed = { scope.launch { app.prefs.setWelcomeSeen(true) } },
                 scrubBandFractions = scrubBand,
                 onSetScrubBand = { top, height -> scope.launch { app.prefs.setScrubBand(top, height) } },
@@ -608,6 +614,8 @@ fun VictoriaNavHost(
                 itemSpacingDp = itemSpacingDp,
                 font = font,
                 hideStatusBar = hideStatusBar,
+                keepHomeOffStatusBar = keepHomeOffStatusBar,
+                homeSafeMarginDp = homeSafeMarginDp,
                 hideStatusBarAppList = hideStatusBarAppList,
                 statusBarPeekSeconds = statusBarPeekSeconds,
                 dimWallpaperAlpha = dimWallpaperAlpha,
@@ -644,6 +652,8 @@ fun VictoriaNavHost(
                 onSetItemSpacing = { scope.launch { app.prefs.setItemSpacingDp(it) } },
                 onSetFont = { scope.launch { app.prefs.setFont(it) } },
                 onSetHideStatusBar = { scope.launch { app.prefs.setHideStatusBar(it) } },
+                onSetKeepHomeOffStatusBar = { scope.launch { app.prefs.setKeepHomeOffStatusBar(it) } },
+                onSetHomeSafeMarginDp = { scope.launch { app.prefs.setHomeSafeMarginDp(it) } },
                 onSetHideStatusBarAppList = { scope.launch { app.prefs.setHideStatusBarAppList(it) } },
                 onSetStatusBarPeekSeconds = { scope.launch { app.prefs.setStatusBarPeekSeconds(it) } },
                 onSetDimWallpaper = { scope.launch { app.prefs.setDimWallpaperAlpha(it) } },

@@ -10,6 +10,18 @@ enum class PaddingSlot {
     FAVORITES_BOTTOM,
 }
 
+/** One store emission, used to avoid migrating a mixture of old and imported layout values. */
+data class HomeLayoutMigrationState(
+    val version: Int?,
+    val paddings: HomePaddings,
+    val widgetIds: List<Int>,
+    val widgetPosition: Int,
+    val favoriteKeys: List<String>,
+    val folders: List<Folder>,
+    val nowPlayingEnabled: Boolean,
+    val marginDp: Int,
+)
+
 /** Per-block top/bottom spacing on the home screen, in dp. */
 data class HomePaddings(
     val nowPlayingTop: Int,

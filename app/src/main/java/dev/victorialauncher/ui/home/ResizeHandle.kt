@@ -89,7 +89,8 @@ fun BoxScope.ResizeOverlay(
     for (top in listOf(true, false)) {
         ResizeHandle(
             top = top,
-            modifier = Modifier.align(if (top) Alignment.TopCenter else Alignment.BottomCenter),
+            modifier = Modifier.align(if (top) Alignment.TopCenter else Alignment.BottomCenter)
+                .size(width = 64.dp, height = (range.first / 2).dp),
             onStart = {
                 val initial = value
                 val initialBounds = bounds
@@ -136,8 +137,9 @@ private fun ResizeHandle(
     val increase = stringResource(R.string.resize_increase)
     val decrease = stringResource(R.string.resize_decrease)
     Box(
-        // Two controls must remain distinct even at Now Playing's 48 dp minimum height.
-        modifier.size(width = 64.dp, height = 24.dp)
+        // Each control occupies at most half the element's minimum height, so the
+        // top and bottom touch regions remain distinct even on the smallest block.
+        modifier
             .onGloballyPositioned { coordinates = it }
             .semantics {
                 contentDescription = description
