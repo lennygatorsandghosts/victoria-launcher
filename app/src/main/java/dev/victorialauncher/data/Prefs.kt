@@ -128,6 +128,10 @@ class Prefs(private val context: Context) {
         val QUICK_LAUNCH_LEFT = stringPreferencesKey(PREF_QUICK_LAUNCH_LEFT)
         val QUICK_LAUNCH_RIGHT = stringPreferencesKey(PREF_QUICK_LAUNCH_RIGHT)
         val LAYOUT_DEFAULTS_VERSION = intPreferencesKey("layout_defaults_version")
+        val LAYOUT_SAFE_TOP_AT_MIGRATION = intPreferencesKey("layout_safe_top_at_migration")
+        val LAYOUT_FIRST_RUN = booleanPreferencesKey("layout_first_run")
+        val KEEP_HOME_OFF_STATUS_BAR = booleanPreferencesKey("keep_home_off_status_bar")
+        val HOME_SAFE_MARGIN_DP = intPreferencesKey("home_safe_margin_dp")
         val WELCOME_SEEN = booleanPreferencesKey("welcome_seen")
         val SHOW_APP_ICONS = booleanPreferencesKey("show_app_icons")
         val ALIGNMENT = stringPreferencesKey("alignment")
@@ -298,16 +302,30 @@ class Prefs(private val context: Context) {
     val nowPlayingHeightDp: Flow<Int> = data.map { it[Keys.NOW_PLAYING_HEIGHT_DP] ?: 64 }.distinctUntilChanged()
 
     /** Draggable top/bottom padding for each home block, set in edit mode. */
-    val homePaddings: Flow<HomePaddings> = data.map {
-        HomePaddings(
-            nowPlayingTop = it[Keys.NOW_PLAYING_PAD_TOP] ?: 8,
-            nowPlayingBottom = it[Keys.NOW_PLAYING_PAD_BOTTOM] ?: 8,
-            widgetTop = it[Keys.WIDGET_PAD_TOP] ?: 8,
-            widgetBottom = it[Keys.WIDGET_PAD_BOTTOM] ?: 8,
-            favoritesTop = it[Keys.FAVORITES_PAD_TOP] ?: 8,
-            favoritesBottom = it[Keys.FAVORITES_PAD_BOTTOM] ?: 24,
-        )
-    }.distinctUntilChanged()
+    private fun readHomePaddings(pref: Preferences) = HomePaddings(
+        nowPlayingTop = pref[Keys.NOW_PLAYING_PAD_TOP] ?: 8,
+        nowPlayingBottom = pref[Keys.NOW_PLAYING_PAD_BOTTOM] ?: 8,
+        widgetTop = pref[Keys.WIDGET_PAD_TOP] ?: 8,
+        widgetBottom = pref[Keys.WIDGET_PAD_BOTTOM] ?: 8,
+        favoritesTop = pref[Keys.FAVORITES_PAD_TOP] ?: 8,
+        favoritesBottom = pref[Keys.FAVORITES_PAD_BOTTOM] ?: 24,
+    )
+
+    val homePaddings: Flow<HomePaddings> = data.map(::readHomePaddings).distinctUntilChanged()
+
+    private fun readHomeLayoutMigrationState(pref: Preferences) = HomeLayoutMigrationState(
+        version = pref[Keys.LAYOUT_DEFAULTS_VERSION],
+        paddings = readHomePaddings(pref),
+        widgetIds = readWidgetIds(pref),
+        widgetPosition = pref[Keys.WIDGET_POSITION] ?: 0,
+        favoriteKeys = readFavorites(pref),
+        folders = foldersFromJson(pref[Keys.FOLDERS]),
+        nowPlayingEnabled = pref[Keys.NOW_PLAYING_ENABLED] ?: false,
+        marginDp = (pref[Keys.HOME_SAFE_MARGIN_DP] ?: 0).coerceIn(0, 32),
+    )
+
+    val homeLayoutMigrationState: Flow<HomeLayoutMigrationState> =
+        data.map(::readHomeLayoutMigrationState).distinctUntilChanged()
 
     /** Absolute path of the typeface the user supplied, once it has been copied in. */
     val fontFile: Flow<String?> = data.map { it[Keys.FONT_FILE] }.distinctUntilChanged()
@@ -529,6 +547,25 @@ class Prefs(private val context: Context) {
     /** 0 = installed before this scheme, 1 = a genuine first run. Absent until [ensureInstallMarker]. */
     val layoutDefaultsVersion: Flow<Int?> =
         data.map { it[Keys.LAYOUT_DEFAULTS_VERSION] }.distinctUntilChanged()
+
+    /** First-run behavior is independent of later layout schema migrations. */
+    val isFirstRunLayout: Flow<Boolean> = data.map {
+        it[Keys.LAYOUT_FIRST_RUN] ?: (it[Keys.LAYOUT_DEFAULTS_VERSION] == 1)
+    }.distinctUntilChanged()
+
+    val keepHomeOffStatusBar: Flow<Boolean> =
+        data.map { it[Keys.KEEP_HOME_OFF_STATUS_BAR] ?: true }.distinctUntilChanged()
+
+    val homeSafeMarginDp: Flow<Int> =
+        data.map { (it[Keys.HOME_SAFE_MARGIN_DP] ?: 0).coerceIn(0, 32) }.distinctUntilChanged()
+
+    suspend fun setKeepHomeOffStatusBar(value: Boolean) {
+        context.dataStore.edit { it[Keys.KEEP_HOME_OFF_STATUS_BAR] = value }
+    }
+
+    suspend fun setHomeSafeMarginDp(value: Int) {
+        context.dataStore.edit { it[Keys.HOME_SAFE_MARGIN_DP] = value.coerceIn(0, 32) }
+    }
 
     val welcomeSeen: Flow<Boolean> = data.map { it[Keys.WELCOME_SEEN] ?: false }.distinctUntilChanged()
 
@@ -949,6 +986,44 @@ class Prefs(private val context: Context) {
             if (pref[Keys.LAYOUT_DEFAULTS_VERSION] == null) {
                 pref[Keys.LAYOUT_DEFAULTS_VERSION] = if (pref.asMap().isEmpty()) 1 else 0
             }
+        }
+    }
+
+    /**
+     * Move the origin into the safe viewport once. Padding values are relative gaps in a
+     * Column: only its first rendered block's leading gap represents the old absolute top.
+     * Converting every block gap would move each later block upward again. All other gaps,
+     * profile lists, and widget IDs are left intact by this single audited transaction.
+     */
+    suspend fun migrateHomeSafeArea(
+        safeTopDp: Int,
+        firstTopSlot: PaddingSlot?,
+        expectedState: HomeLayoutMigrationState? = null,
+    ) {
+        // A zero inset may be the first frame before Android dispatches real window insets.
+        // Wait for an actual safe top and a rendered block, rather than stamping a guess.
+        if (safeTopDp <= 0) return
+        val key = when (firstTopSlot) {
+            PaddingSlot.WIDGET_TOP -> Keys.WIDGET_PAD_TOP
+            PaddingSlot.NOW_PLAYING_TOP -> Keys.NOW_PLAYING_PAD_TOP
+            PaddingSlot.FAVORITES_TOP -> Keys.FAVORITES_PAD_TOP
+            else -> return
+        }
+        context.dataStore.edit { pref ->
+            // The composition that chose the first block may already have been replaced by
+            // an import. Reject that old decision rather than applying it to the new layout.
+            if (expectedState != null && readHomeLayoutMigrationState(pref) != expectedState) return@edit
+            val version = pref[Keys.LAYOUT_DEFAULTS_VERSION] ?: return@edit
+            if (version >= 3 || pref[Keys.KEEP_HOME_OFF_STATUS_BAR] == false) return@edit
+            val firstRun = pref[Keys.LAYOUT_FIRST_RUN] ?: (version == 1)
+            pref[Keys.LAYOUT_FIRST_RUN] = firstRun
+            // Fresh layouts use measured centering, and must retain that behavior. Writing
+            // a default gap would falsely mark their layout as manually customized.
+            if (!firstRun || padKeys.any { pref.contains(it) }) {
+                pref[key] = ((pref[key] ?: 8).coerceAtLeast(0) - safeTopDp).coerceAtLeast(0)
+            }
+            pref[Keys.LAYOUT_SAFE_TOP_AT_MIGRATION] = safeTopDp
+            pref[Keys.LAYOUT_DEFAULTS_VERSION] = 3
         }
     }
 

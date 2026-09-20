@@ -105,6 +105,8 @@ fun SettingsScreen(
     itemSpacingDp: Int,
     font: AppFont,
     hideStatusBar: Boolean,
+    keepHomeOffStatusBar: Boolean,
+    homeSafeMarginDp: Int,
     hideStatusBarAppList: Boolean,
     dimWallpaperAlpha: Float,
     hapticsEnabled: Boolean,
@@ -141,6 +143,8 @@ fun SettingsScreen(
     onSetFont: (AppFont) -> Unit,
     statusBarPeekSeconds: Int,
     onSetHideStatusBar: (Boolean) -> Unit,
+    onSetKeepHomeOffStatusBar: (Boolean) -> Unit,
+    onSetHomeSafeMarginDp: (Int) -> Unit,
     onSetHideStatusBarAppList: (Boolean) -> Unit,
     onSetStatusBarPeekSeconds: (Int) -> Unit,
     onSetDimWallpaper: (Float) -> Unit,
@@ -334,6 +338,18 @@ fun SettingsScreen(
                     SwitchRow(stringResource(R.string.settings_show_names), showFavoriteLabels, onSetShowFavoriteLabels)
                     RowDivider()
                     SwitchRow(stringResource(R.string.settings_hide_status_bar), hideStatusBar, onSetHideStatusBar)
+                    RowDivider()
+                    SwitchRow(stringResource(R.string.settings_keep_home_off_status_bar), keepHomeOffStatusBar, onSetKeepHomeOffStatusBar)
+                    if (keepHomeOffStatusBar) {
+                        RowDivider()
+                        SliderRow(
+                            label = stringResource(R.string.settings_home_safe_margin),
+                            value = homeSafeMarginDp.toFloat(),
+                            range = 0f..32f,
+                            valueLabel = "${homeSafeMarginDp}dp",
+                            onValueChange = { onSetHomeSafeMarginDp(it.roundToInt()) },
+                        )
+                    }
                     RowDivider()
                     SwitchRow(
                         stringResource(R.string.settings_hide_status_bar_applist),

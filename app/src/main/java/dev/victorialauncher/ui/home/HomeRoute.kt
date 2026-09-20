@@ -59,6 +59,7 @@ import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.Folder
 import dev.victorialauncher.data.HomePaddings
+import dev.victorialauncher.data.HomeLayoutMigrationState
 import dev.victorialauncher.data.QuickLaunchSlot
 import dev.victorialauncher.data.SlideFrom
 import dev.victorialauncher.data.PaddingSlot
@@ -568,6 +569,18 @@ fun HomeRoute(
                 onEditModeChange = { homeEditMode = it },
                 onEditScrubBand = { liveBand = band; bandEditMode = true },
                 centerFavorites = settings.centerFavorites,
+                keepHomeOffStatusBar = settings.keepHomeOffStatusBar,
+                homeSafeMarginDp = settings.homeSafeMarginDp,
+                // Rendering uses several flows. A migration needs one coherent emission,
+                // especially when importing into this still-running activity replaces them.
+                layoutMigrationState = settings.layoutMigrationState?.takeIf { snapshot ->
+                    snapshot.paddings == homePaddings && snapshot.widgetIds == widgetIds &&
+                        snapshot.widgetPosition == widgetPosition && snapshot.favoriteKeys == favoriteKeys &&
+                        snapshot.folders == folders && snapshot.nowPlayingEnabled == settings.nowPlayingEnabled &&
+                        snapshot.marginDp == settings.homeSafeMarginDp &&
+                        (favoriteKeys.isEmpty() || appsByKey.values.any { it.kind != EntryKind.PRIVATE_SPACE })
+                },
+                onMigrateSafeArea = { top, slot, snapshot -> app.prefs.migrateHomeSafeArea(top, slot, snapshot) },
                 swipeUpOpensAppList = settings.swipeUpOpensAppList,
                 onSwipeUpDrag = { total, delta ->
                     appListVisible = true
@@ -858,6 +871,9 @@ data class HomeSettings(
     val quickLaunchRight: AppInfo?,
     /** Place the favorites by measurement, until the user sets a padding of their own. */
     val centerFavorites: Boolean,
+    val keepHomeOffStatusBar: Boolean,
+    val homeSafeMarginDp: Int,
+    val layoutMigrationState: HomeLayoutMigrationState?,
     val dimWallpaperAlpha: Float,
     val dimHomeAlpha: Float,
     val dimColor: Int,

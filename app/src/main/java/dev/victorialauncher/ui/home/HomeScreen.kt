@@ -21,6 +21,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
@@ -96,6 +100,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.victorialauncher.data.AppInfo
@@ -109,6 +115,7 @@ import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.HomePaddings
 import dev.victorialauncher.data.folderToken
 import dev.victorialauncher.data.PaddingSlot
+import dev.victorialauncher.data.HomeLayoutMigrationState
 import dev.victorialauncher.media.NowPlayingWidget
 import dev.victorialauncher.media.openNowPlayingApp
 import dev.victorialauncher.service.HapticUtil
@@ -214,6 +221,10 @@ fun HomeScreen(
     onEditModeChange: (Boolean) -> Unit,
     onEditScrubBand: () -> Unit,
     centerFavorites: Boolean,
+    keepHomeOffStatusBar: Boolean,
+    homeSafeMarginDp: Int,
+    layoutMigrationState: HomeLayoutMigrationState?,
+    onMigrateSafeArea: suspend (safeTopDp: Int, firstTopSlot: PaddingSlot?, expectedState: HomeLayoutMigrationState) -> Unit,
     swipeUpOpensAppList: Boolean,
     /** Total distance dragged up past the end, and this frame's share of it. */
     onSwipeUpDrag: (total: Float, delta: Float) -> Unit,
@@ -242,6 +253,35 @@ fun HomeScreen(
     val density = LocalDensity.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+    val layoutDirection = LocalLayoutDirection.current
+    var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    var contentWidthPx by remember { mutableIntStateOf(0) }
+    var contentLeftPx by remember { mutableFloatStateOf(0f) }
+    // Read the snapshot-backed WindowInsets on every composition. The same activity survives
+    // rotation and fold changes, so a remembered inset capture would become stale.
+    val safeArea = HomeSafeArea(
+        windowWidth = windowSize.width.toFloat(),
+        windowHeight = windowSize.height.toFloat(),
+        statusTop = WindowInsets.statusBars.getTop(density).toFloat(),
+        cutoutTop = WindowInsets.displayCutout.getTop(density).toFloat(),
+        navigationBottom = WindowInsets.navigationBars.getBottom(density).toFloat(),
+        gestureBottom = WindowInsets.systemGestures.getBottom(density).toFloat(),
+        insetLeft = maxOf(WindowInsets.displayCutout.getLeft(density, layoutDirection),
+            WindowInsets.navigationBars.getLeft(density, layoutDirection)).toFloat(),
+        insetRight = maxOf(WindowInsets.displayCutout.getRight(density, layoutDirection),
+            WindowInsets.navigationBars.getRight(density, layoutDirection)).toFloat(),
+        enabled = keepHomeOffStatusBar,
+        margin = with(density) { homeSafeMarginDp.dp.toPx() },
+    )
+    val widgetSidePaddingPx = with(density) { widgetSidePaddingDp.dp.toPx() }
+        .coerceIn(0f, contentWidthPx / 2f)
+    val widgetOffsetPx = safeArea.clampOffsetX(
+        requested = with(density) { widgetOffsetXDp.dp.toPx() },
+        widgetLeft = contentLeftPx + widgetSidePaddingPx,
+        widgetWidth = (contentWidthPx - 2 * widgetSidePaddingPx).coerceAtLeast(0f),
+        contentLeft = contentLeftPx,
+        contentRight = contentLeftPx + contentWidthPx,
+    )
 
     // A stepped value shows immediately and is written at the same time; holding it locally
     // as well means repeated taps compound instead of each one reading back the stale stored
@@ -302,6 +342,18 @@ fun HomeScreen(
         buildHomeItems(favorites, widgetPosition, showWidgetSlot)
     }
     val displayItems = dragOrder ?: homeItems
+    val firstTopSlot = when {
+        !hasWidget && nowPlayingHasContent -> PaddingSlot.NOW_PLAYING_TOP
+        homeItems.firstOrNull() is HomeItem.Widget -> PaddingSlot.WIDGET_TOP
+        homeItems.isNotEmpty() -> PaddingSlot.FAVORITES_TOP
+        else -> null
+    }
+    LaunchedEffect(safeArea.top, firstTopSlot, layoutMigrationState, keepHomeOffStatusBar, editMode) {
+        val snapshot = layoutMigrationState
+        if (keepHomeOffStatusBar && !editMode && snapshot != null) {
+            onMigrateSafeArea(with(density) { safeArea.top.toDp().value.roundToInt() }, firstTopSlot, snapshot)
+        }
+    }
 
     // Folders sit alongside apps in the favorites block, so both bound its padding.
     val firstRowIndex = displayItems.indexOfFirst { it !is HomeItem.Widget }
@@ -394,9 +446,7 @@ fun HomeScreen(
     val offsetY = remember { Animatable(0f) }
     var viewportHeight by remember { mutableIntStateOf(0) }
     var contentHeight by remember { mutableIntStateOf(0) }
-    val minOffset = remember(viewportHeight, contentHeight) {
-        minOf(0f, (viewportHeight - contentHeight).toFloat())
-    }
+    val minOffset = safeArea.minOffset(contentHeight.toFloat())
     // Turning the phone changes how much there is to scroll through. A stack dragged up in
     // landscape kept that offset when the screen went tall again, which left it sitting above
     // the top of the display with nothing on screen to drag it back down by.
@@ -426,6 +476,13 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { windowSize = it }
+            .absolutePadding(
+                left = with(density) { safeArea.left.toDp() },
+                top = with(density) { safeArea.top.toDp() },
+                right = with(density) { (windowSize.width - safeArea.right).coerceAtLeast(0f).toDp() },
+                bottom = with(density) { (windowSize.height - safeArea.bottom).coerceAtLeast(0f).toDp() },
+            )
             .onSizeChanged { viewportHeight = it.height }
             .onGloballyPositioned { rootY = it.positionInWindow().y }
             .draggable(
@@ -535,10 +592,10 @@ fun HomeScreen(
     ) {
         Column(
             modifier = Modifier
-                // Sideways the camera cutout is down one edge rather than along the top, and
-                // it sat over the favorites. Only the horizontal sides are taken, so a phone
-                // held upright — where the cutout is above everything anyway — is unchanged.
-                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                // Fullbleed retains the legacy horizontal cutout behavior. Safe mode has
+                // already applied all physical edges to the viewport exactly once.
+                .then(if (keepHomeOffStatusBar) Modifier else
+                    Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)))
                 // A row of one short name stretched over a tablet is mostly empty space, and
                 // the A-Z strip ends up a hand's width from the names it is scrubbing. The cap
                 // only bites on a screen wider than a phone held upright, so nothing moves on
@@ -560,7 +617,8 @@ fun HomeScreen(
                             .offset { IntOffset(0, offsetY.value.roundToInt()) }
                     }
                 )
-                .onSizeChanged { contentHeight = it.height },
+                .onSizeChanged { contentHeight = it.height; contentWidthPx = it.width }
+                .onGloballyPositioned { contentLeftPx = it.positionInWindow().x },
         ) {
             if (editMode) {
                 Row(
@@ -568,7 +626,7 @@ fun HomeScreen(
                         .fillMaxWidth()
                         // The overlay draws under the status bar, so without this the Done
                         // button sits behind the clock.
-                        .statusBarsPadding()
+                        .then(if (keepHomeOffStatusBar) Modifier else Modifier.statusBarsPadding())
                         .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
@@ -749,9 +807,10 @@ fun HomeScreen(
                                 onEditLayout = { onEditModeChange(true) },
                                 actions = widgetActions,
                                 modifier = Modifier
-                                    .offset(x = widgetOffsetXDp.dp)
+                                    .offset { IntOffset(widgetOffsetPx.roundToInt(), 0) }
                                     .fillMaxWidth()
-                                    .padding(horizontal = widgetSidePaddingDp.dp),
+                                    .padding(horizontal = if (keepHomeOffStatusBar)
+                                        with(density) { widgetSidePaddingPx.toDp() } else widgetSidePaddingDp.dp),
                             )
                             // The widget is a row in the order like any other, so it needs a
                             // handle of its own to be moved among them.
