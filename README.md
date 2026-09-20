@@ -4,13 +4,26 @@
 > by adelmonte, who did all the real work. It installs beside the original
 > (`org.lemmyorleans.vickyplus`) and tracks upstream closely.
 >
-> **What the fork adds**
-> - **Pinned shortcuts** — "Add to Home screen" from a browser, and any other app's pinned
->   shortcut, become ordinary entries: favorites, the A-Z list, folders, rename, custom icon.
-> - **A search button** — an entry that asks for a query and opens a URL template of your
->   choosing (for example your own SearXNG instance) in your browser.
+> **What the fork adds** (current as of `0.67.0-vicky.4`)
+> - **A badge on shortcut icons** — a bookmark carries a small copy of the icon of the app
+>   that opens it, so two browsers' bookmarks stop looking alike. Plain browser tiles are
+>   masked to the chosen icon shape. Settings → "Show app badge on shortcuts".
+> - **Clearer bookmark removal** — "Remove from home screen" and "Delete bookmark" say which
+>   is which, and deleting asks first.
+> - **A floating button**, bottom-right, with an action per gesture (tap, three swipes,
+>   long-press to edit), and a slim web-search bar docked above the keyboard that opens a URL
+>   template of your choosing — for example your own SearXNG.
+> - **Niagara-ish list** — a wave A-Z scrubber with a bright strip, the private space as its
+>   own section at the bottom, a date and battery header, recently-installed suggestions, and
+>   a one-tap preset for the whole look.
 > - **A stricter settings import** — the file is size-capped, type-checked and limited to
 >   known settings before anything is written. Exports from stock Victoria still import.
+>
+> **Already upstream, so no longer a difference:** pinned shortcuts as list entries (#48) and
+> Android 15 private-space support (#49) were both merged into Victoria itself.
+>
+> Everything here is offered upstream when it is general enough to be worth someone else's
+> maintenance. The branches named `feat/…` and `fix/…` carry no Vicky+ naming for that reason.
 >
 > Like the original it asks for no network permission: the search button only hands an
 > address to your browser.
