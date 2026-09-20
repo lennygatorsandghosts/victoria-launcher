@@ -697,7 +697,15 @@ class PrivateSpaceLauncherTest {
         const val SETTINGS_ENTRY_SEARCH = "Vicky+ sett"
         const val SETTINGS_SECTION_VICKY_BUTTON = "Vicky+ button"
         const val VICKY_BUTTON_EDIT_TAP = "Edit tap action"
-        const val APP_SHORTCUTS_LABEL = "App shortcuts"
+        /**
+         * The picker's own [dev.victorialauncher.ui.button.SectionHeader] always uppercases
+         * whatever text it is given (`button_picker_app_shortcuts` is "App shortcuts" in
+         * strings.xml), so what actually reaches the screen — and what `By.text`'s exact match
+         * needs — is "APP SHORTCUTS". Confirmed on-device: `.claude/evidence/r3-diagnose/picker_dump2.xml`
+         * shows the node as `text="APP SHORTCUTS"`, with the picker correctly listing Chrome's
+         * shortcut group beneath it.
+         */
+        const val APP_SHORTCUTS_LABEL = "APP SHORTCUTS"
 
         /** A built-in action only the picker lists, so seeing it means the picker is up. */
         const val PICKER_ONLY_ACTION_LABEL = "Lock screen"

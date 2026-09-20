@@ -170,16 +170,26 @@ class PrivateSectionTest {
         device.wait(Until.findObject(By.text(text)), 5_000L)
             ?: error("expected \"$text\" to be visible")
 
+    /**
+     * Was a single long, fast fling (30%-85% of the screen height in 15ms) repeated up to 160
+     * times. That drag is large and fast enough that once the list has nothing left to give —
+     * which it does almost immediately, since this always runs right after [LauncherTestUtils.openAppList]
+     * opens at the top already — the unconsumed motion was landing on the system's own
+     * pull-down-for-notifications handling instead of the app: logcat during a failing run
+     * shows `CUJ=J<NOTIFICATION_SHADE_QS_EXPAND_COLLAPSE>` frames timed to the swipe loop, and
+     * the launcher never gets the rest of the gesture back, so the search that follows never
+     * finds anything (`unlockedPrivateAppsAppearAfterTheHeaderAndNotUnderTheirLetter`'s "never
+     * reached the Private space header" — logged as a suspected gesture race in a previous
+     * round, `.claude/STATE.md` row 39: "the list was pulled off its top and the notification
+     * shade opened"). `noPrivateAppLabelAppearsAnywhereWhileLocked` only ever asserts absence,
+     * so the same failure mode passed there vacuously instead of loudly.
+     *
+     * Reusing [swipeListUp]'s already-calibrated short, slow drag (same magnitude proven safe
+     * at the list's other end) in reverse fixes the cause without weakening what either test
+     * checks.
+     */
     private fun scrollListToTop() {
-        repeat(MAX_SCROLL_STEPS) {
-            device.swipe(
-                device.displayWidth / 2,
-                (device.displayHeight * 0.3f).toInt(),
-                device.displayWidth / 2,
-                (device.displayHeight * 0.85f).toInt(),
-                15,
-            )
-        }
+        repeat(MAX_SCROLL_STEPS) { swipeListDown() }
     }
 
     private fun scrollListToBottom() {
@@ -202,6 +212,17 @@ class PrivateSectionTest {
             (device.displayHeight * 0.70f).toInt(),
             device.displayWidth / 2,
             (device.displayHeight * 0.62f).toInt(),
+            30,
+        )
+    }
+
+    /** [swipeListUp], reversed: the same short, slow drag, revealing what's above instead. */
+    private fun swipeListDown() {
+        device.swipe(
+            device.displayWidth / 2,
+            (device.displayHeight * 0.62f).toInt(),
+            device.displayWidth / 2,
+            (device.displayHeight * 0.70f).toInt(),
             30,
         )
     }
