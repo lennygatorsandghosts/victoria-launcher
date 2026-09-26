@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package dev.victorialauncher.ui.common
 
+import dev.victorialauncher.data.IconShape
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -79,8 +81,29 @@ class BadgeGeometryTest {
 
     @Test
     fun `badge cache key suffix is only present for enabled shortcut badges`() {
-        assertEquals("", badgeKeySuffix(isShortcut = false, enabled = true, overridesStamp = 42))
-        assertEquals("", badgeKeySuffix(isShortcut = true, enabled = false, overridesStamp = 42))
-        assertEquals("|b1|42", badgeKeySuffix(isShortcut = true, enabled = true, overridesStamp = 42))
+        assertEquals("", badgeKeySuffix(isShortcut = false, enabled = true, overridesStamp = 42, badgeStyle = plain))
+        assertEquals("", badgeKeySuffix(isShortcut = true, enabled = false, overridesStamp = 42, badgeStyle = plain))
+        assertTrue(badgeKeySuffix(isShortcut = true, enabled = true, overridesStamp = 42, badgeStyle = plain).startsWith("|b1|42|"))
     }
+
+    // The badge is drawn in the style the settings describe even when the shortcut's own picture
+    // is a custom icon, whose part of the key is pinned to an unstyled look. So the style has to
+    // be in the suffix, or turning Themed on, changing the shape or the wallpaper's colours would
+    // keep serving the badge drawn the old way.
+    @Test
+    fun `badge cache key suffix changes with every part of the style the badge is drawn in`() {
+        fun suffix(style: IconStyle) =
+            badgeKeySuffix(isShortcut = true, enabled = true, overridesStamp = 42, badgeStyle = style)
+        val others = listOf(
+            plain.copy(themed = true),
+            plain.copy(shape = IconShape.SQUARE),
+            plain.copy(background = 0x112233),
+            plain.copy(foreground = 0x445566),
+        )
+        others.forEach { style ->
+            assertNotEquals("suffix should change for $style", suffix(plain), suffix(style))
+        }
+    }
+
+    private val plain = IconStyle(shape = IconShape.SYSTEM, themed = false, background = 0, foreground = 0)
 }

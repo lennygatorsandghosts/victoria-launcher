@@ -72,6 +72,16 @@ fun badgePlan(isShortcut: Boolean, enabled: Boolean, hasPublisher: Boolean, hasO
  * icon, and a shortcut's with the setting off, are cached under exactly the key they always
  * were. [overridesStamp] stands for every custom icon set, since one set on the app a shortcut
  * opens in changes its badge.
+ *
+ * [badgeStyle] is the style the badge is drawn in, which is the one the settings describe and
+ * not necessarily the one in the rest of the key: a custom icon on the shortcut pins its own
+ * part of the key to an unstyled look, while the badge still follows Themed, the shape and
+ * the wallpaper's colours. Without it here, changing any of those would keep serving the
+ * badge as it was first drawn.
  */
-fun badgeKeySuffix(isShortcut: Boolean, enabled: Boolean, overridesStamp: Int): String =
-    if (isShortcut && enabled) "|b1|$overridesStamp" else ""
+fun badgeKeySuffix(isShortcut: Boolean, enabled: Boolean, overridesStamp: Int, badgeStyle: IconStyle): String =
+    if (isShortcut && enabled) {
+        "|b1|$overridesStamp|${badgeStyle.shape}|${badgeStyle.themed}|${badgeStyle.background}|${badgeStyle.foreground}"
+    } else {
+        ""
+    }

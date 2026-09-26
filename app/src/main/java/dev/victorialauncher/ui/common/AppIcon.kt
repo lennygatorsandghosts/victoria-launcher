@@ -292,7 +292,7 @@ private fun rasterKeyAndStyle(
     val isShortcut = app.kind == EntryKind.SHORTCUT
     // Only a shortcut's key needs it, and the map is hashed on every row drawn otherwise.
     val stamp = if (isShortcut && badges) overrides.hashCode() else 0
-    val suffix = badgeKeySuffix(isShortcut, badges, stamp)
+    val suffix = badgeKeySuffix(isShortcut, badges, stamp, base)
     return iconCacheKey(app, iconPackPackage, overrideValue, px, style, suffix) to style
 }
 
@@ -336,7 +336,15 @@ internal fun rasterise(
     val isShortcut = app.kind == EntryKind.SHORTCUT
 
     return runCatching {
-        val publisher = if (badges && isShortcut) victoriaApp.appRepository.publisherApp(app) else null
+        // Worked out first because it decides everything below: an icon too small to carry a
+        // badge (a folder's cover cells, say) is drawn exactly as it would be with badges off,
+        // system profile badge and all, rather than losing that and gaining nothing.
+        val geometry = badgeGeometry(px)
+        val publisher = if (badges && isShortcut && geometry != null) {
+            victoriaApp.appRepository.publisherApp(app)
+        } else {
+            null
+        }
         // Without the system's profile badge when the publisher's icon is going in: they would
         // share a corner. The publisher's icon of a work or private-space app is itself badged
         // for its profile, so nothing is lost.
@@ -348,7 +356,6 @@ internal fun rasterise(
         val hasOwnIcon = overrideValue != null || shortcutOwn != null
         val drawable = shortcutOwn ?: resolveDrawable(context, victoriaApp, app, iconPackPackage, overrideValue)
         val rendered = renderIcon(drawable, px, style.shape, style.themed, style.background, style.foreground)
-        val geometry = badgeGeometry(px)
         val parent = if (
             publisher != null &&
             geometry != null &&
@@ -365,16 +372,16 @@ internal fun rasterise(
 }
 
 /**
- * [badge] scaled into the bottom corner of a copy of [base], after a slightly larger copy of
- * it is cut out of [base] first. The cut leaves a thin ring of whatever is behind the icon
- * around the badge, which is what keeps it readable against a busy picture; it follows the
- * badge's own outline, so a round icon gets a round ring and a square one a square ring.
+ * [badge] scaled into the bottom corner of [base], after a slightly larger copy of it is cut
+ * out of [base] first. The cut leaves a thin ring of whatever is behind the icon around the
+ * badge, which is what keeps it readable against a busy picture; it follows the badge's own
+ * outline, so a round icon gets a round ring and a square one a square ring.
  *
- * A copy because [base] can be the drawable's own bitmap, handed out to anyone else who asks
- * for it and not ours to draw on.
+ * Drawn straight onto [base]: it is the bitmap renderIcon has just allocated for this one
+ * picture, mutable and not yet cached or shared with anything.
  */
 private fun compositeBadge(base: Bitmap, badge: Bitmap, geometry: BadgeGeometry): Bitmap {
-    val out = base.copy(Bitmap.Config.ARGB_8888, true) ?: base
+    val out = base
     val canvas = Canvas(out)
     val source: Rect? = null
     val flags = Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG
