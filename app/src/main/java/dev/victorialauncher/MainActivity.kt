@@ -111,6 +111,7 @@ class MainActivity : ComponentActivity() {
             val themedIcons by app.prefs.themedIcons.collectAsState(initial = false)
             val notificationBadges by app.prefs.notificationBadges.collectAsState(initial = false)
             val iconShape by app.prefs.iconShape.collectAsState(initial = IconShape.SYSTEM)
+            val shortcutAppBadge by app.prefs.shortcutAppBadge.collectAsState(initial = true)
             val iconConfig = remember(
                 iconPackPackage,
                 iconOverrides,
@@ -118,6 +119,7 @@ class MainActivity : ComponentActivity() {
                 themedIcons,
                 notificationBadges,
                 iconShape,
+                shortcutAppBadge,
             ) {
                 IconConfig(
                     pack = iconPackPackage,
@@ -126,6 +128,7 @@ class MainActivity : ComponentActivity() {
                     themed = themedIcons,
                     notificationBadges = notificationBadges,
                     shape = iconShape,
+                    shortcutBadges = shortcutAppBadge,
                 )
             }
 

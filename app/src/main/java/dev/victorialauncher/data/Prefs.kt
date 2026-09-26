@@ -115,6 +115,7 @@ class Prefs(private val context: Context) {
         val SHORTCUT_SWIPE = stringPreferencesKey("shortcut_swipe")
         val QUICK_LAUNCH_SLIDE = booleanPreferencesKey("quick_launch_slide")
         val THEMED_ICONS = booleanPreferencesKey("themed_icons")
+        val SHORTCUT_APP_BADGE = booleanPreferencesKey("shortcut_app_badge")
         val ICON_SHAPE = stringPreferencesKey("icon_shape")
         val HIDE_STATUS_BAR = booleanPreferencesKey("hide_status_bar")
         val HIDE_STATUS_BAR_APPLIST = booleanPreferencesKey("hide_status_bar_applist")
@@ -390,6 +391,13 @@ class Prefs(private val context: Context) {
      * ordinary icon — there is nothing to derive one from.
      */
     val themedIcons: Flow<Boolean> = data.map { it[Keys.THEMED_ICONS] ?: false }.distinctUntilChanged()
+
+    /**
+     * A pinned shortcut drawn with the icon of the app that opens it in its corner. On by
+     * default, because a bookmark's own picture is often a letter on a tile, which says nothing
+     * about whether it opens in one browser or another; off gives back exactly the icon it had.
+     */
+    val shortcutAppBadge: Flow<Boolean> = data.map { it[Keys.SHORTCUT_APP_BADGE] ?: true }.distinctUntilChanged()
 
     val iconShape: Flow<IconShape> = data.map { pref ->
         pref[Keys.ICON_SHAPE]?.let { runCatching { IconShape.valueOf(it) }.getOrNull() } ?: IconShape.SYSTEM
@@ -806,6 +814,10 @@ class Prefs(private val context: Context) {
 
     suspend fun setThemedIcons(v: Boolean) {
         context.dataStore.edit { it[Keys.THEMED_ICONS] = v }
+    }
+
+    suspend fun setShortcutAppBadge(v: Boolean) {
+        context.dataStore.edit { it[Keys.SHORTCUT_APP_BADGE] = v }
     }
 
     suspend fun setIconShape(v: IconShape) {

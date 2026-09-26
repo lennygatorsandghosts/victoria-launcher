@@ -11,6 +11,7 @@ import android.content.pm.ShortcutInfo
 import android.content.res.Configuration
 import android.content.res.Resources
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
@@ -49,6 +50,19 @@ class AppRepository(
         get() = context.getSystemService(LauncherApps::class.java)
     private val userManager: UserManager
         get() = context.getSystemService(UserManager::class.java)
+
+    // Wrapped so that "looked, and there is no such app" can be kept as well as an answer.
+    private data class PublisherMemoValue(val app: AppInfo?)
+
+    // Shared rather than per instance so that clearIconCache, which has no repository to hand,
+    // can drop it along with the bitmaps it was used to draw.
+    companion object {
+        private val publisherMemo = ConcurrentHashMap<Pair<String, Long>, PublisherMemoValue>()
+
+        fun clearPublisherMemo() {
+            publisherMemo.clear()
+        }
+    }
 
     /**
      * The last serial a private space positively reported, kept only so that a read which
@@ -489,9 +503,9 @@ class AppRepository(
     fun loadIcon(app: AppInfo): Drawable {
         // Ours, and drawn from our own resources, so there is nothing to ask the system for.
         if (app.kind == EntryKind.PRIVATE_SPACE) return privateSpaceIcon(app)
-        // A shortcut's own picture, badged with the app that published it. Falling through
-        // means it has none of its own, and the publisher's app icon below is the answer.
-        if (app.kind == EntryKind.SHORTCUT) shortcutIcon(app)?.let { return it }
+        // A shortcut's own picture, badged for its profile. Falling through means it has none
+        // of its own, and the publisher's app icon below is the answer.
+        if (app.kind == EntryKind.SHORTCUT) shortcutIcon(app, profileBadge = true)?.let { return it }
         val user = app.user
         if (user != null) {
             val activity = runCatching {
@@ -513,11 +527,69 @@ class AppRepository(
         }
     }
 
-    private fun shortcutIcon(app: AppInfo): Drawable? {
+    /**
+     * A shortcut's own picture without the system's profile badge, for when the publisher's
+     * icon is going into that corner instead (see [publisherApp]). Null when it has none.
+     */
+    fun shortcutOwnIcon(app: AppInfo): Drawable? = shortcutIcon(app, profileBadge = false)
+
+    // The profile badge is the system's, not the publisher's: a work or private-space
+    // shortcut comes back with the briefcase or the padlock in its bottom corner, which is
+    // exactly where the publisher's icon goes when that is drawn.
+    private fun shortcutIcon(app: AppInfo, profileBadge: Boolean): Drawable? {
         val info = findShortcut(app) ?: return null
         val density = context.resources.configuration.densityDpi
+        if (!profileBadge) {
+            return runCatching { launcherApps.getShortcutIconDrawable(info, density) }.getOrNull()
+        }
         return runCatching { launcherApps.getShortcutBadgedIconDrawable(info, density) }.getOrNull()
             ?: runCatching { launcherApps.getShortcutIconDrawable(info, density) }.getOrNull()
+    }
+
+    /**
+     * The app a pinned shortcut opens in, as an ordinary app row, so its icon can be drawn in
+     * the corner of the shortcut's own. Null when there is none to be found, and then nothing
+     * is badged.
+     *
+     * The activity the shortcut names first, and otherwise the package's first launcher
+     * activity: a bookmark usually names the browser's main screen, but nothing requires it to
+     * name one with an icon of its own.
+     *
+     * Asked of the same profile the shortcut is in, and only while that profile may be listed
+     * at all. The row being drawn was listed when it was read, but a private space can lock
+     * between that read and this one, and nothing from a space that may not be listed is read
+     * here, not even to find a picture that would never be shown.
+     *
+     * Kept per package and profile, since twenty bookmarks from one browser all want the same
+     * answer, and dropped with the icon cache, which is cleared whenever a package or a
+     * profile changes.
+     */
+    fun publisherApp(shortcut: AppInfo): AppInfo? {
+        if (shortcut.kind != EntryKind.SHORTCUT) return null
+        val mainUser = Process.myUserHandle()
+        val user = shortcut.user ?: mainUser
+        // Checked before the kept answer is, so one found while the space was open is not
+        // handed back after it has locked. The profile we run in is always listed.
+        if (user != mainUser && listableSerial(user, mainUser) != shortcut.userSerial) return null
+        val key = shortcut.packageName to shortcut.userSerial
+        publisherMemo[key]?.let { return it.app }
+
+        val activities = runCatching {
+            launcherApps.getActivityList(shortcut.packageName, user)
+        }.getOrNull().orEmpty()
+        val activity = activities.firstOrNull { it.componentName == shortcut.componentName }
+            ?: activities.firstOrNull()
+        val app = activity?.let { info ->
+            AppInfo(
+                componentName = info.componentName,
+                label = info.label?.toString() ?: info.componentName.packageName,
+                user = user,
+                userSerial = shortcut.userSerial,
+                kind = EntryKind.APP,
+            )
+        }
+        publisherMemo[key] = PublisherMemoValue(app)
+        return app
     }
 
     // An app's label comes back in the device's language, so on a Japanese phone the English

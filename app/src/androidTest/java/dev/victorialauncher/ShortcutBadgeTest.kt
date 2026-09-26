@@ -7,8 +7,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Rect
+import android.os.Build
 import android.os.Process
 import android.os.SystemClock
+import android.os.UserHandle
+import android.os.UserManager
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -22,6 +25,7 @@ import dev.victorialauncher.data.HomeAlignment
 import dev.victorialauncher.data.IconShape
 import dev.victorialauncher.data.IconSide
 import dev.victorialauncher.data.Prefs
+import dev.victorialauncher.data.USER_TYPE_PROFILE_PRIVATE
 import dev.victorialauncher.ui.common.clearIconCache
 import java.io.File
 import kotlin.math.abs
@@ -29,6 +33,8 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -112,6 +118,66 @@ class ShortcutBadgeTest {
 
         assertApproxColor("shortcut icon", averageColor(screenshot, bounds, 0.10f, 0.30f), CYAN)
         assertApproxColor("unbadged shortcut corner", averageColor(screenshot, bounds, 0.72f, 0.90f), CYAN)
+    }
+
+    /**
+     * A private space locked after its shortcut was read must not be asked which app that
+     * shortcut opens in, even when the answer was found, and kept, while it was open. Only the
+     * lookup is exercised, on a shortcut row made up here: whether a shortcut is pinned makes
+     * no difference to it, and pinning one would need the space's own publisher to cooperate.
+     */
+    @Test
+    fun publisherIsNotLookedUpInALockedPrivateSpace() {
+        assumeTrue("private space arrived in Android 15", Build.VERSION.SDK_INT >= 35)
+        val launcherApps = targetContext.getSystemService(LauncherApps::class.java)
+        val userManager = targetContext.getSystemService(UserManager::class.java)
+        val privateUser = runCatching { launcherApps.profiles }.getOrNull().orEmpty().firstOrNull { user ->
+            runCatching { launcherApps.getLauncherUserInfo(user)?.userType }.getOrNull() ==
+                USER_TYPE_PROFILE_PRIVATE
+        }
+        assumeTrue("this device has no private space", privateUser != null)
+        val user = privateUser!!
+        setLocked(userManager, user, false)
+        val activity = runCatching { launcherApps.getActivityList(PRIVATE_APP_PACKAGE, user) }
+            .getOrNull()
+            ?.firstOrNull()
+        assumeTrue("$PRIVATE_APP_PACKAGE is not installed in the private space", activity != null)
+        val serial = userManager.getSerialNumberForUser(user)
+        val row = AppInfo(
+            componentName = activity!!.componentName,
+            label = "Private shortcut",
+            user = user,
+            userSerial = serial,
+            kind = EntryKind.SHORTCUT,
+            shortcutId = "private_probe",
+        )
+        val repository = (targetContext.applicationContext as VictoriaApp).appRepository
+
+        try {
+            clearIconCache()
+            val open = repository.publisherApp(row)
+            assertTrue("expected the publisher while the space is open", open != null)
+            assertEquals(serial, open!!.userSerial)
+
+            setLocked(userManager, user, true)
+            assertNull("expected no publisher once the space is locked", repository.publisherApp(row))
+            clearIconCache()
+            assertNull("expected no publisher while the space stays locked", repository.publisherApp(row))
+        } finally {
+            setLocked(userManager, user, false)
+        }
+    }
+
+    private fun setLocked(userManager: UserManager, user: UserHandle, locked: Boolean) {
+        if (userManager.isQuietModeEnabled(user) == locked) return
+        userManager.requestQuietModeEnabled(locked, user)
+        val deadline = SystemClock.uptimeMillis() + QUIET_MODE_MS
+        while (userManager.isQuietModeEnabled(user) != locked) {
+            check(SystemClock.uptimeMillis() < deadline) {
+                "the private space never became ${if (locked) "locked" else "unlocked"}"
+            }
+            SystemClock.sleep(250)
+        }
     }
 
     private fun assumeTestPackInstalled() {
@@ -271,6 +337,8 @@ class ShortcutBadgeTest {
         private const val WAIT_MS = 10_000L
         private const val TEST_PACKAGE = "dev.victorialauncher.testpack"
         private const val SHORTCUT_APP_BADGE_PREF = "shortcut_app_badge"
+        private const val QUIET_MODE_MS = 15_000L
+        private const val PRIVATE_APP_PACKAGE = "com.google.android.deskclock"
 
         private val TEST_SHORTCUT_IDS = (0 until 20).map { "probe_$it" }
 

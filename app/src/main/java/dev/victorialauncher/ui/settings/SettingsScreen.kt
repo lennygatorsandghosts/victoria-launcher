@@ -138,6 +138,7 @@ fun SettingsScreen(
     showAppIcons: Boolean,
     showFavoriteIcons: Boolean,
     onSetShowFavoriteIcons: (Boolean) -> Unit,
+    shortcutBadges: Boolean,
     showListHeaders: Boolean,
     onSetShowListHeaders: (Boolean) -> Unit,
     notificationBadges: Boolean,
@@ -152,6 +153,7 @@ fun SettingsScreen(
     onSetFrequentCount: (Int) -> Unit,
     onSetIconPack: (String?) -> Unit,
     onSetShowAppIcons: (Boolean) -> Unit,
+    onSetShortcutBadges: (Boolean) -> Unit,
     onSetIconSize: (Int) -> Unit,
     onSetLabelSize: (Int) -> Unit,
     onSetItemSpacing: (Int) -> Unit,
@@ -334,6 +336,12 @@ fun SettingsScreen(
                         showAppIcons,
                         onSetShowAppIcons,
                     )
+                    // Only while there are icons somewhere for it to go on. Each place still follows
+                    // its own switch: a row drawn without an icon has nothing to badge.
+                    if (showFavoriteIcons || showAppIcons) {
+                        RowDivider()
+                        SwitchRow(stringResource(R.string.settings_shortcut_badge), shortcutBadges, onSetShortcutBadges)
+                    }
                     RowDivider()
                     SwitchRowWithDetail(
                         label = stringResource(R.string.settings_list_headers),

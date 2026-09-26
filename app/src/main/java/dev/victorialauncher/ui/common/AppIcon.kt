@@ -2,6 +2,13 @@
 package dev.victorialauncher.ui.common
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.util.LruCache
@@ -21,6 +28,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +39,7 @@ import androidx.core.graphics.drawable.toBitmap
 import dev.victorialauncher.media.NotificationCountBus
 import dev.victorialauncher.VictoriaApp
 import dev.victorialauncher.data.AppInfo
+import dev.victorialauncher.data.AppRepository
 import dev.victorialauncher.data.EntryKind
 import dev.victorialauncher.data.IconShape
 import kotlinx.coroutines.async
@@ -78,7 +87,10 @@ private object IconCache {
     fun clear() = cache.evictAll()
 }
 
-fun clearIconCache() = IconCache.clear()
+fun clearIconCache() {
+    IconCache.clear()
+    AppRepository.clearPublisherMemo()
+}
 
 // The class name is in here for the rows whose key alone cannot tell two pictures apart: the
 // private-space row keeps one key across locking and unlocking, and the padlock it draws is
@@ -89,7 +101,8 @@ private fun iconCacheKey(
     override: String?,
     px: Int,
     style: IconStyle,
-) = "${app.key}|${app.componentName.className}|$iconPack|$override|$px|${style.shape}|${style.themed}|${style.background}"
+    badgeSuffix: String = "",
+) = "${app.key}|${app.componentName.className}|$iconPack|$override|$px|${style.shape}|${style.themed}|${style.background}$badgeSuffix"
 
 /** Everything about how an icon is drawn that is not the icon itself. */
 @Immutable
@@ -117,21 +130,13 @@ suspend fun warmIconCache(
     px: Int,
     style: IconStyle,
     priorityKeys: Set<String> = emptySet(),
+    badges: Boolean = true,
 ) {
     if (px <= 0 || apps.isEmpty()) return
     val victoriaApp = context.applicationContext as VictoriaApp
 
     fun warm(app: AppInfo) {
-        val override = overrides[app.key]
-        val styled = override == null && iconPack == null
-        val own = if (styled) style else style.copy(shape = IconShape.SYSTEM, themed = false)
-        val key = iconCacheKey(app, iconPack, override, px, own)
-        if (IconCache.get(key) != null) return
-        runCatching {
-            val drawable = resolveDrawable(context, victoriaApp, app, iconPack, override)
-            val bitmap = renderIcon(drawable, px, own.shape, own.themed, own.background, own.foreground)
-            IconCache.put(key, bitmap.asImageBitmap())
-        }
+        rasterise(context, victoriaApp, app, iconPack, overrides, px, style, badges)
     }
 
     val (first, rest) = apps.partition { it.key in priorityKeys }
@@ -167,6 +172,8 @@ data class IconConfig(
     /** Whether an app showing notifications is badged with how many. */
     val notificationBadges: Boolean,
     val shape: IconShape,
+    /** Whether a pinned shortcut carries the icon of the app it opens in, in its corner. */
+    val shortcutBadges: Boolean = true,
 )
 
 val LocalIconConfig = staticCompositionLocalOf {
@@ -177,6 +184,7 @@ val LocalIconConfig = staticCompositionLocalOf {
         themed = false,
         notificationBadges = false,
         shape = IconShape.SYSTEM,
+        shortcutBadges = true,
     )
 }
 
@@ -188,29 +196,21 @@ fun AppIcon(app: AppInfo, sizeDp: Int, modifier: Modifier = Modifier) {
     // Nothing drawn and no space taken, so rows close up rather than leaving a hole.
     if (!config.showIcons) return
     val iconPackPackage = config.pack
-    val overrideValue = config.overrides[app.key]
     val px = with(LocalDensity.current) { sizeDp.dp.roundToPx() }.coerceAtLeast(1)
 
-    // An override or an icon pack is a picture the user chose; neither is an adaptive icon
-    // with layers to tint or a safe zone to cut into, so styling only applies to what the app
-    // itself supplies.
-    val styled = overrideValue == null && iconPackPackage == null
     val scheme = MaterialTheme.colorScheme
     val style = IconStyle(
-        shape = if (styled) config.shape else IconShape.SYSTEM,
-        themed = styled && config.themed,
+        shape = config.shape,
+        themed = config.themed,
         background = scheme.primaryContainer.toArgb(),
         foreground = scheme.onPrimaryContainer.toArgb(),
     )
 
-    val cacheKey = iconCacheKey(app, iconPackPackage, overrideValue, px, style)
+    // The key is worked out here as well as inside rasterise so that remember can tell when the
+    // picture has changed; both come from the one function, so they cannot disagree.
+    val cacheKey = rasterKey(app, iconPackPackage, config.overrides, px, style, config.shortcutBadges)
     val bitmap: ImageBitmap? = remember(cacheKey) {
-        IconCache.get(cacheKey) ?: runCatching {
-            val drawable = resolveDrawable(context, victoriaApp, app, iconPackPackage, overrideValue)
-            renderIcon(drawable, px, style.shape, style.themed, style.background, style.foreground)
-                .asImageBitmap()
-                .also { IconCache.put(cacheKey, it) }
-        }.getOrNull()
+        rasterise(context, victoriaApp, app, iconPackPackage, config.overrides, px, style, config.shortcutBadges)
     }
 
     // Badged rather than drawn into the bitmap: the count changes while the icon does not, and
@@ -265,6 +265,145 @@ private fun NotificationBadge(count: Int, iconSizeDp: Int, modifier: Modifier = 
             maxLines = 1,
         )
     }
+}
+
+/**
+ * The cache key for [app] drawn with these settings, and the styling that actually applies.
+ *
+ * An override or an icon pack is a picture the user chose; neither is an adaptive icon with
+ * layers to tint or a safe zone to cut into, so styling only applies to what the app itself
+ * supplies.
+ *
+ * A shortcut's key also carries whether it is badged, and a stamp of every override: its
+ * badge is another row's icon, so an override set on the app it opens in changes this picture
+ * without changing anything else in this key.
+ */
+private fun rasterKeyAndStyle(
+    app: AppInfo,
+    iconPackPackage: String?,
+    overrides: Map<String, String>,
+    px: Int,
+    base: IconStyle,
+    badges: Boolean,
+): Pair<String, IconStyle> {
+    val overrideValue = overrides[app.key]
+    val styled = overrideValue == null && iconPackPackage == null
+    val style = if (styled) base else base.copy(shape = IconShape.SYSTEM, themed = false)
+    val isShortcut = app.kind == EntryKind.SHORTCUT
+    // Only a shortcut's key needs it, and the map is hashed on every row drawn otherwise.
+    val stamp = if (isShortcut && badges) overrides.hashCode() else 0
+    val suffix = badgeKeySuffix(isShortcut, badges, stamp)
+    return iconCacheKey(app, iconPackPackage, overrideValue, px, style, suffix) to style
+}
+
+private fun rasterKey(
+    app: AppInfo,
+    iconPackPackage: String?,
+    overrides: Map<String, String>,
+    px: Int,
+    base: IconStyle,
+    badges: Boolean,
+): String = rasterKeyAndStyle(app, iconPackPackage, overrides, px, base, badges).first
+
+/**
+ * The one place an icon is decoded, styled and cached, for the rows as they are drawn and for
+ * [warmIconCache] ahead of them alike, so a badge is drawn everywhere a row is and never twice.
+ *
+ * [base] is the style as the settings describe it, before an override or icon pack switches
+ * the styling off for that one picture: a shortcut with a custom icon still has its badge
+ * drawn the way that app is drawn everywhere else.
+ *
+ * With [badges] on, a pinned shortcut that has a picture of its own (from its publisher or a
+ * custom one set on the row) carries its publisher's icon in the bottom corner, drawn by this
+ * same function as that app's own row, so it follows the icon pack, a custom icon set on that
+ * app, and themed icons, with no rules of its own. A shortcut without a picture of its own
+ * already shows the publisher's icon, and badging it with itself would say nothing.
+ */
+internal fun rasterise(
+    context: Context,
+    victoriaApp: VictoriaApp,
+    app: AppInfo,
+    iconPackPackage: String?,
+    overrides: Map<String, String>,
+    px: Int,
+    base: IconStyle,
+    badges: Boolean,
+): ImageBitmap? {
+    if (px <= 0) return null
+    val (cacheKey, style) = rasterKeyAndStyle(app, iconPackPackage, overrides, px, base, badges)
+    IconCache.get(cacheKey)?.let { return it }
+    val overrideValue = overrides[app.key]
+    val isShortcut = app.kind == EntryKind.SHORTCUT
+
+    return runCatching {
+        val publisher = if (badges && isShortcut) victoriaApp.appRepository.publisherApp(app) else null
+        // Without the system's profile badge when the publisher's icon is going in: they would
+        // share a corner. The publisher's icon of a work or private-space app is itself badged
+        // for its profile, so nothing is lost.
+        val shortcutOwn = if (publisher != null && overrideValue == null) {
+            victoriaApp.appRepository.shortcutOwnIcon(app)
+        } else {
+            null
+        }
+        val hasOwnIcon = overrideValue != null || shortcutOwn != null
+        val drawable = shortcutOwn ?: resolveDrawable(context, victoriaApp, app, iconPackPackage, overrideValue)
+        val rendered = renderIcon(drawable, px, style.shape, style.themed, style.background, style.foreground)
+        val geometry = badgeGeometry(px)
+        val parent = if (
+            publisher != null &&
+            geometry != null &&
+            badgePlan(isShortcut, badges, hasPublisher = true, hasOwnIcon = hasOwnIcon) == BadgePlan.BADGE
+        ) {
+            rasterise(context, victoriaApp, publisher, iconPackPackage, overrides, px, base, badges = false)
+                ?.asAndroidBitmap()
+        } else {
+            null
+        }
+        val finalBitmap = if (parent != null && geometry != null) compositeBadge(rendered, parent, geometry) else rendered
+        finalBitmap.asImageBitmap().also { IconCache.put(cacheKey, it) }
+    }.getOrNull()
+}
+
+/**
+ * [badge] scaled into the bottom corner of a copy of [base], after a slightly larger copy of
+ * it is cut out of [base] first. The cut leaves a thin ring of whatever is behind the icon
+ * around the badge, which is what keeps it readable against a busy picture; it follows the
+ * badge's own outline, so a round icon gets a round ring and a square one a square ring.
+ *
+ * A copy because [base] can be the drawable's own bitmap, handed out to anyone else who asks
+ * for it and not ours to draw on.
+ */
+private fun compositeBadge(base: Bitmap, badge: Bitmap, geometry: BadgeGeometry): Bitmap {
+    val out = base.copy(Bitmap.Config.ARGB_8888, true) ?: base
+    val canvas = Canvas(out)
+    val source: Rect? = null
+    val flags = Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG
+    val cutPaint = Paint(flags).apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+    }
+    canvas.drawBitmap(
+        badge,
+        source,
+        RectF(
+            geometry.haloLeft.toFloat(),
+            geometry.haloTop.toFloat(),
+            (geometry.haloLeft + geometry.haloSize).toFloat(),
+            (geometry.haloTop + geometry.haloSize).toFloat(),
+        ),
+        cutPaint,
+    )
+    canvas.drawBitmap(
+        badge,
+        source,
+        RectF(
+            geometry.left.toFloat(),
+            geometry.top.toFloat(),
+            (geometry.left + geometry.size).toFloat(),
+            (geometry.top + geometry.size).toFloat(),
+        ),
+        Paint(flags),
+    )
+    return out
 }
 
 /**
